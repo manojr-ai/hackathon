@@ -36,16 +36,21 @@ from pyspark.sql.window import Window
 from datetime import datetime
 
 # Configuration
-CATALOG = "databricks_virtue_foundation_dataset_dais_2026"
-SCHEMA = "virtue_foundation_dataset"
-BRONZE_TABLE = f"{CATALOG}.{SCHEMA}.nfhs_5_district_health_indicators"
-SILVER_TABLE = f"{CATALOG}.{SCHEMA}.health_indicators_silver"
-GOLD_TABLE = f"{CATALOG}.{SCHEMA}.health_indicators_gold"
+# Bronze: Read from Delta Sharing catalog (read-only)
+BRONZE_CATALOG = "databricks_virtue_foundation_dataset_dais_2026"
+BRONZE_SCHEMA = "virtue_foundation_dataset"
+BRONZE_TABLE = f"{BRONZE_CATALOG}.{BRONZE_SCHEMA}.nfhs_5_district_health_indicators"
+
+# Silver & Gold: Write to workspace catalog (writable)
+WRITE_CATALOG = "workspace"
+WRITE_SCHEMA = "healthgpt"
+SILVER_TABLE = f"{WRITE_CATALOG}.{WRITE_SCHEMA}.health_indicators_silver"
+GOLD_TABLE = f"{WRITE_CATALOG}.{WRITE_SCHEMA}.health_indicators_gold"
 
 print("✓ Pipeline configuration loaded")
-print(f"  Bronze: {BRONZE_TABLE}")
-print(f"  Silver: {SILVER_TABLE}")
-print(f"  Gold: {GOLD_TABLE}")
+print(f"  Bronze (read-only): {BRONZE_TABLE}")
+print(f"  Silver (writable):  {SILVER_TABLE}")
+print(f"  Gold (writable):    {GOLD_TABLE}")
 
 # COMMAND ----------
 
@@ -372,7 +377,7 @@ display(spark.table(GOLD_TABLE).select(
 # MAGIC     WHEN low_vaccination_flag THEN 'Low Vaccination, '
 # MAGIC     ELSE ''
 # MAGIC   END AS triggered_flags
-# MAGIC FROM databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.health_indicators_gold
+# MAGIC FROM workspace.healthgpt.health_indicators_gold
 # MAGIC WHERE risk_category IN ('CRITICAL', 'HIGH')
 # MAGIC ORDER BY overall_risk_score DESC
 # MAGIC LIMIT 25
@@ -391,7 +396,7 @@ display(spark.table(GOLD_TABLE).select(
 # MAGIC   SUM(CASE WHEN low_anc_flag THEN 1 ELSE 0 END) as low_anc_count,
 # MAGIC   SUM(CASE WHEN low_vaccination_flag THEN 1 ELSE 0 END) as low_vaccination_count,
 # MAGIC   SUM(CASE WHEN poor_sanitation_flag THEN 1 ELSE 0 END) as poor_sanitation_count
-# MAGIC FROM databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.health_indicators_gold
+# MAGIC FROM workspace.healthgpt.health_indicators_gold
 # MAGIC GROUP BY risk_category
 # MAGIC ORDER BY 
 # MAGIC   CASE risk_category
@@ -430,7 +435,7 @@ display(spark.table(GOLD_TABLE).select(
 # MAGIC   low_anc_flag,
 # MAGIC   low_vaccination_flag,
 # MAGIC   triggered_risk_count
-# MAGIC FROM databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.health_indicators_gold
+# MAGIC FROM workspace.healthgpt.health_indicators_gold
 # MAGIC WHERE district_name LIKE '%Nicobar%'
 # MAGIC ORDER BY district_name
 
@@ -441,12 +446,12 @@ display(spark.table(GOLD_TABLE).select(
 # MAGIC ## ✅ Phase 1 Complete!
 # MAGIC
 # MAGIC ### Created Tables:
-# MAGIC 1. **Silver**: `health_indicators_silver` - Cleaned indicators (698 districts)
+# MAGIC 1. **Silver**: `workspace.healthgpt.health_indicators_silver` - Cleaned indicators (698 districts)
 # MAGIC    - Data type normalization
 # MAGIC    - Null handling with state-level imputation
 # MAGIC    - Data quality scoring
 # MAGIC
-# MAGIC 2. **Gold**: `health_indicators_gold` - ML-ready features with risk scores
+# MAGIC 2. **Gold**: `workspace.healthgpt.health_indicators_gold` - ML-ready features with risk scores
 # MAGIC    - Overall risk score (0-100) and risk category (LOW/MEDIUM/HIGH/CRITICAL)
 # MAGIC    - Domain-specific risk scores (maternal, anemia, vaccination, sanitation, child nutrition)
 # MAGIC    - Binary risk flags for rule-based policy triggers
@@ -500,7 +505,3 @@ display(spark.table(GOLD_TABLE).select(
 # MAGIC git commit -m "Phase 1: Bronze->Silver->Gold pipeline for HealthGPT"
 # MAGIC git push origin feature/healthgpt-phase1
 # MAGIC ```
-
-# COMMAND ----------
-
-
