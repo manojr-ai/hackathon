@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # DBTITLE 1,Phase 2 Overview
 # MAGIC %md
 # MAGIC # HealthGPT Policy Command Center - Phase 2
@@ -30,6 +34,11 @@
 # MAGIC - **Dashboard**: Display predicted risk for new districts
 # MAGIC - **Policy Engine**: Recommend interventions based on feature importance
 # MAGIC - **What-If Simulator**: Predict impact of policy changes
+
+# COMMAND ----------
+
+# DBTITLE 1,Install Required Packages
+# MAGIC %pip install xgboost --quiet
 
 # COMMAND ----------
 
@@ -239,6 +248,16 @@ print("\n" + "=" * 70)
 print("MODEL 2: RISK CATEGORY CLASSIFIER (XGBoost Classifier)")
 print("=" * 70)
 
+# Encode labels: map risk categories to integers
+from sklearn.preprocessing import LabelEncoder
+label_encoder = LabelEncoder()
+y_train_cls_encoded = label_encoder.fit_transform(y_train_cls)
+y_test_cls_encoded = label_encoder.transform(y_test_cls)
+
+print(f"\n✓ Label encoding:")
+for i, label in enumerate(label_encoder.classes_):
+    print(f"  {label} → {i}")
+
 # Configure XGBoost parameters
 xgb_cls_params = {
     'n_estimators': 100,
@@ -248,20 +267,24 @@ xgb_cls_params = {
     'colsample_bytree': 0.8,
     'random_state': 42,
     'objective': 'multi:softmax',
-    'num_class': len(y_classification.unique()),
+    'num_class': len(label_encoder.classes_),
     'eval_metric': 'mlogloss'
 }
 
 # Train model
 xgb_cls = XGBClassifier(**xgb_cls_params)
-xgb_cls.fit(X_train_cls, y_train_cls, verbose=False)
+xgb_cls.fit(X_train_cls, y_train_cls_encoded, verbose=False)
 
 print(f"\n✓ Model trained successfully")
-print(f"  Classes: {xgb_cls.classes_}")
+print(f"  Classes: {label_encoder.classes_}")
 
 # Predictions
-y_pred_train_cls = xgb_cls.predict(X_train_cls)
-y_pred_test_cls = xgb_cls.predict(X_test_cls)
+y_pred_train_cls_encoded = xgb_cls.predict(X_train_cls)
+y_pred_test_cls_encoded = xgb_cls.predict(X_test_cls)
+
+# Decode predictions back to original labels
+y_pred_train_cls = label_encoder.inverse_transform(y_pred_train_cls_encoded)
+y_pred_test_cls = label_encoder.inverse_transform(y_pred_test_cls_encoded)
 
 # Evaluation metrics
 train_accuracy = accuracy_score(y_train_cls, y_pred_train_cls)
@@ -375,6 +398,15 @@ mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
 print(f"\n✓ MLflow experiment: {MLFLOW_EXPERIMENT}")
 
+# Create model signatures
+from mlflow.models import infer_signature
+
+# Infer signatures from training data
+reg_signature = infer_signature(X_train, y_train_reg)
+cls_signature = infer_signature(X_train_cls, y_train_cls_encoded)
+
+print(f"\n✓ Model signatures created")
+
 # Log Regression Model
 with mlflow.start_run(run_name="HealthGPT_Risk_Predictor") as run:
     # Log parameters
@@ -386,10 +418,11 @@ with mlflow.start_run(run_name="HealthGPT_Risk_Predictor") as run:
     mlflow.log_metric("test_r2", test_r2)
     mlflow.log_metric("train_r2", train_r2)
     
-    # Log model
+    # Log model with signature
     mlflow.xgboost.log_model(
         xgb_reg, 
         "model",
+        signature=reg_signature,
         registered_model_name="healthgpt_risk_predictor"
     )
     
@@ -410,12 +443,19 @@ with mlflow.start_run(run_name="HealthGPT_Category_Classifier") as run:
     mlflow.log_metric("test_accuracy", test_accuracy)
     mlflow.log_metric("train_accuracy", train_accuracy)
     
-    # Log model
+    # Log model with signature
     mlflow.xgboost.log_model(
         xgb_cls, 
         "model",
+        signature=cls_signature,
         registered_model_name="healthgpt_category_classifier"
     )
+    
+    # Log label encoder as artifact
+    import pickle
+    with open("/tmp/label_encoder.pkl", "wb") as f:
+        pickle.dump(label_encoder, f)
+    mlflow.log_artifact("/tmp/label_encoder.pkl")
     
     print(f"\n✅ Classification model logged to MLflow")
     print(f"   Run ID: {run.info.run_id}")
