@@ -70,7 +70,8 @@ import seaborn as sns
 
 # Configuration
 GOLD_TABLE = "workspace.healthgpt.health_indicators_gold"
-MLFLOW_EXPERIMENT = "/Users/manoj.rayalla@acuitybrands.com/healthgpt_models"
+current_user = spark.sql("SELECT current_user()").collect()[0][0]
+MLFLOW_EXPERIMENT = f"/Users/{current_user}/healthgpt_models"
 
 print("✓ Libraries imported successfully")
 print(f"  XGBoost version: {xgb.__version__}")
