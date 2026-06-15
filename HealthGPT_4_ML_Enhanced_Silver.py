@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # DBTITLE 1,Setup and Imports
 # ============================================================================
 # HEALTHGPT CARE GAP TRUST PLANNER - NOTEBOOK 4: ML-ENHANCED SILVER
@@ -58,7 +62,7 @@ df_facility_ml = df_facility_ml.join(
     spark.table(ML_CAPABILITY_TABLE).select(
         "facility_id",
         "capability",
-        F.col("ml_probability").alias("ml_capability_probability"),
+        F.col("ai_probability").alias("ml_capability_probability"),
         F.col("ml_confidence").alias("ml_capability_confidence")
     ),
     on=["facility_id", "capability"],
@@ -71,8 +75,8 @@ df_facility_ml = df_facility_ml.join(
         "facility_id",
         "capability",
         F.col("ml_trust_signal"),
-        F.col("ml_trust_score"),
-        F.col("trust_delta")
+        F.col("ml_confidence_score").alias("ml_trust_score"),
+        F.col("agreement")
     ),
     on=["facility_id", "capability"],
     how="left"
@@ -96,7 +100,10 @@ df_facility_ml = df_facility_ml.join(
 # Add derived fields for UI
 df_facility_ml = df_facility_ml.withColumn(
     "dual_score_agreement",
-    F.when(F.col("rule_trust_signal") == F.col("ml_trust_signal"), "AGREE").otherwise("DISAGREE")
+    F.coalesce(F.col("agreement"), F.lit("UNKNOWN"))
+).withColumn(
+    "trust_delta",
+    F.col("ml_trust_score") - F.col("rule_confidence_score")
 ).withColumn(
     "score_divergence",
     F.when(F.abs(F.col("trust_delta")) > 20, "HIGH")
