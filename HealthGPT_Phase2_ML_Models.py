@@ -502,4 +502,472 @@ print(f"{'='*70}")
 
 # COMMAND ----------
 
+# DBTITLE 1,Model 3: District Clustering Analysis
+# MAGIC %md
+# MAGIC ## Model 3: District Clustering for Similar Districts
+# MAGIC
+# MAGIC Identify groups of districts with similar health profiles to enable:
+# MAGIC * **Peer Comparison**: Compare district performance within its cluster
+# MAGIC * **Targeted Interventions**: Recommend policies that worked in similar districts
+# MAGIC * **Resource Allocation**: Group districts for efficient program rollout
+# MAGIC * **Benchmarking**: Identify best-performing districts within each cluster
+# MAGIC
+# MAGIC ### Clustering Approach:
+# MAGIC * **Algorithm**: K-Means clustering
+# MAGIC * **Features**: Normalized health indicators and domain risk scores
+# MAGIC * **Optimal K**: Determined by Elbow method and Silhouette score
+
+# COMMAND ----------
+
+# DBTITLE 1,Determine Optimal Number of Clusters
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+
+print("=" * 70)
+print("DISTRICT CLUSTERING ANALYSIS")
+print("=" * 70)
+
+# Select features for clustering (normalized indicators)
+clustering_features = health_features + composite_features + domain_features
+
+# Prepare data
+X_cluster = df[clustering_features].copy()
+
+# Standardize features (important for K-Means)
+scaler = StandardScaler()
+X_cluster_scaled = scaler.fit_transform(X_cluster)
+
+print(f"\n✓ Prepared {X_cluster.shape[1]} features for clustering")
+print(f"  Districts: {X_cluster.shape[0]}")
+
+# Determine optimal number of clusters using Elbow method
+inertias = []
+silhouette_scores = []
+K_range = range(3, 11)  # Test 3 to 10 clusters
+
+print(f"\n🔍 Testing cluster counts from {K_range.start} to {K_range.stop-1}...")
+
+for k in K_range:
+    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans.fit(X_cluster_scaled)
+    inertias.append(kmeans.inertia_)
+    silhouette_scores.append(silhouette_score(X_cluster_scaled, kmeans.labels_))
+
+# Find optimal K (highest silhouette score)
+optimal_k = K_range.start + silhouette_scores.index(max(silhouette_scores))
+
+print(f"\n📊 Clustering Quality Metrics:")
+for k, inertia, sil_score in zip(K_range, inertias, silhouette_scores):
+    marker = " ← OPTIMAL" if k == optimal_k else ""
+    print(f"  K={k}: Inertia={inertia:.0f}, Silhouette={sil_score:.4f}{marker}")
+
+print(f"\n✓ Optimal number of clusters: {optimal_k}")
+
+# Visualize elbow curve
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+# Elbow curve
+ax1.plot(K_range, inertias, 'bo-', linewidth=2, markersize=8)
+ax1.axvline(x=optimal_k, color='r', linestyle='--', linewidth=2, label=f'Optimal K={optimal_k}')
+ax1.set_xlabel('Number of Clusters (K)', fontsize=12)
+ax1.set_ylabel('Inertia (Within-cluster sum of squares)', fontsize=12)
+ax1.set_title('Elbow Method', fontsize=14, fontweight='bold')
+ax1.grid(True, alpha=0.3)
+ax1.legend()
+
+# Silhouette scores
+ax2.plot(K_range, silhouette_scores, 'go-', linewidth=2, markersize=8)
+ax2.axvline(x=optimal_k, color='r', linestyle='--', linewidth=2, label=f'Optimal K={optimal_k}')
+ax2.set_xlabel('Number of Clusters (K)', fontsize=12)
+ax2.set_ylabel('Silhouette Score', fontsize=12)
+ax2.set_title('Silhouette Analysis', fontsize=14, fontweight='bold')
+ax2.grid(True, alpha=0.3)
+ax2.legend()
+
+plt.tight_layout()
+plt.show()
+
+# COMMAND ----------
+
+# DBTITLE 1,Train K-Means Clustering Model
+# Train final K-Means model with optimal K
+print("\n" + "=" * 70)
+print(f"TRAINING K-MEANS MODEL (K={optimal_k})")
+print("=" * 70)
+
+kmeans_final = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+cluster_labels = kmeans_final.fit_predict(X_cluster_scaled)
+
+# Add cluster assignments to dataframe
+df['cluster'] = cluster_labels
+
+print(f"\n✓ Clustering complete")
+print(f"  Model: K-Means (K={optimal_k})")
+print(f"  Silhouette Score: {silhouette_score(X_cluster_scaled, cluster_labels):.4f}")
+
+# Cluster distribution
+print(f"\n📊 Cluster Distribution:")
+cluster_counts = df['cluster'].value_counts().sort_index()
+for cluster_id, count in cluster_counts.items():
+    pct = count / len(df) * 100
+    print(f"  Cluster {cluster_id}: {count} districts ({pct:.1f}%)")
+
+# COMMAND ----------
+
+# DBTITLE 1,Cluster Profiling and Characterization
+# Profile each cluster
+print("\n" + "=" * 70)
+print("CLUSTER PROFILING")
+print("=" * 70)
+
+# Calculate cluster statistics
+cluster_profiles = df.groupby('cluster').agg({
+    'overall_risk_score': 'mean',
+    'maternal_risk_score': 'mean',
+    'anemia_risk_score': 'mean',
+    'vaccination_risk_score': 'mean',
+    'sanitation_risk_score': 'mean',
+    'child_nutrition_risk_score': 'mean',
+    'women_anemia_pct': 'mean',
+    'child_stunting_pct': 'mean',
+    'anc_4_visits_pct': 'mean',
+    'vaccination_full_pct': 'mean',
+    'sanitation_improved_pct': 'mean'
+}).round(1)
+
+# Assign cluster names based on characteristics
+cluster_names = []
+for cluster_id in range(optimal_k):
+    profile = cluster_profiles.loc[cluster_id]
+    
+    # Determine cluster characteristics
+    risk = profile['overall_risk_score']
+    maternal = profile['maternal_risk_score']
+    sanitation = profile['sanitation_risk_score']
+    
+    if risk < 30:
+        name = "Low Risk - High Performance"
+    elif risk < 40:
+        if maternal > 50:
+            name = "Moderate Risk - Maternal Health Challenge"
+        elif sanitation > 50:
+            name = "Moderate Risk - Infrastructure Gap"
+        else:
+            name = "Moderate Risk - Balanced"
+    elif risk < 50:
+        if maternal > 60:
+            name = "High Risk - Critical Maternal Care"
+        else:
+            name = "High Risk - Multiple Challenges"
+    else:
+        name = "Critical Risk - Urgent Intervention Needed"
+    
+    cluster_names.append(name)
+
+cluster_profiles['cluster_name'] = cluster_names
+cluster_profiles['district_count'] = cluster_counts.values
+
+print(f"\n📊 Cluster Profiles:\n")
+for cluster_id, row in cluster_profiles.iterrows():
+    print(f"\n{'='*70}")
+    print(f"CLUSTER {cluster_id}: {row['cluster_name']}")
+    print(f"{'='*70}")
+    print(f"  Districts: {int(row['district_count'])}")
+    print(f"  Overall Risk: {row['overall_risk_score']:.1f}/100")
+    print(f"\n  Domain Risks:")
+    print(f"    Maternal Care:    {row['maternal_risk_score']:.1f}")
+    print(f"    Anemia:           {row['anemia_risk_score']:.1f}")
+    print(f"    Vaccination:      {row['vaccination_risk_score']:.1f}")
+    print(f"    Sanitation:       {row['sanitation_risk_score']:.1f}")
+    print(f"    Child Nutrition:  {row['child_nutrition_risk_score']:.1f}")
+    print(f"\n  Key Indicators:")
+    print(f"    Women Anemia:        {row['women_anemia_pct']:.1f}%")
+    print(f"    Child Stunting:      {row['child_stunting_pct']:.1f}%")
+    print(f"    ANC 4+ Visits:       {row['anc_4_visits_pct']:.1f}%")
+    print(f"    Full Vaccination:    {row['vaccination_full_pct']:.1f}%")
+    print(f"    Improved Sanitation: {row['sanitation_improved_pct']:.1f}%")
+
+# Save cluster names to dataframe
+df['cluster_name'] = df['cluster'].map(dict(enumerate(cluster_names)))
+
+# COMMAND ----------
+
+# DBTITLE 1,Visualize Cluster Characteristics
+# Visualize cluster characteristics
+print("\n" + "=" * 70)
+print("CLUSTER VISUALIZATION")
+print("=" * 70)
+
+# 1. Cluster comparison across domains
+fig, ax = plt.subplots(figsize=(12, 6))
+
+domain_cols = ['maternal_risk_score', 'anemia_risk_score', 'vaccination_risk_score', 
+               'sanitation_risk_score', 'child_nutrition_risk_score']
+
+cluster_profiles[domain_cols].plot(kind='bar', ax=ax, width=0.8)
+ax.set_xlabel('Cluster', fontsize=12)
+ax.set_ylabel('Risk Score', fontsize=12)
+ax.set_title('Cluster Comparison: Domain Risk Scores', fontsize=14, fontweight='bold')
+ax.set_xticklabels([f"C{i}: {cluster_names[i][:25]}..." for i in range(optimal_k)], rotation=45, ha='right')
+ax.legend(['Maternal', 'Anemia', 'Vaccination', 'Sanitation', 'Child Nutrition'], 
+          bbox_to_anchor=(1.05, 1), loc='upper left')
+ax.grid(True, alpha=0.3, axis='y')
+plt.tight_layout()
+plt.show()
+
+# 2. Cluster size and risk distribution
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+# Cluster sizes
+cluster_counts_sorted = cluster_profiles['district_count'].sort_values(ascending=True)
+colors = plt.cm.RdYlGn_r(cluster_profiles.loc[cluster_counts_sorted.index, 'overall_risk_score'] / 100)
+ax1.barh(range(len(cluster_counts_sorted)), cluster_counts_sorted.values, color=colors)
+ax1.set_yticks(range(len(cluster_counts_sorted)))
+ax1.set_yticklabels([f"Cluster {i}" for i in cluster_counts_sorted.index])
+ax1.set_xlabel('Number of Districts', fontsize=12)
+ax1.set_title('Cluster Sizes', fontsize=14, fontweight='bold')
+ax1.grid(True, alpha=0.3, axis='x')
+
+# Average risk by cluster
+risk_sorted = cluster_profiles['overall_risk_score'].sort_values(ascending=True)
+colors_risk = plt.cm.RdYlGn_r(risk_sorted / 100)
+ax2.barh(range(len(risk_sorted)), risk_sorted.values, color=colors_risk)
+ax2.set_yticks(range(len(risk_sorted)))
+ax2.set_yticklabels([f"Cluster {i}" for i in risk_sorted.index])
+ax2.set_xlabel('Average Risk Score', fontsize=12)
+ax2.set_title('Average Risk by Cluster', fontsize=14, fontweight='bold')
+ax2.grid(True, alpha=0.3, axis='x')
+ax2.axvline(x=30, color='green', linestyle='--', alpha=0.5, label='Low threshold')
+ax2.axvline(x=40, color='orange', linestyle='--', alpha=0.5, label='Medium threshold')
+ax2.axvline(x=50, color='red', linestyle='--', alpha=0.5, label='High threshold')
+ax2.legend()
+
+plt.tight_layout()
+plt.show()
+
+print(f"\n✓ Visualizations complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,PCA Visualization of Clusters
+from sklearn.decomposition import PCA
+
+# Reduce to 2D for visualization using PCA
+pca = PCA(n_components=2, random_state=42)
+X_pca = pca.fit_transform(X_cluster_scaled)
+
+print(f"\n📊 PCA Variance Explained:")
+print(f"  PC1: {pca.explained_variance_ratio_[0]*100:.1f}%")
+print(f"  PC2: {pca.explained_variance_ratio_[1]*100:.1f}%")
+print(f"  Total: {sum(pca.explained_variance_ratio_)*100:.1f}%")
+
+# Create 2D scatter plot
+fig, ax = plt.subplots(figsize=(12, 8))
+
+scatter = ax.scatter(X_pca[:, 0], X_pca[:, 1], 
+                     c=cluster_labels, 
+                     cmap='tab10', 
+                     s=50, 
+                     alpha=0.6,
+                     edgecolors='black',
+                     linewidth=0.5)
+
+# Plot cluster centroids
+centroids_pca = pca.transform(kmeans_final.cluster_centers_)
+ax.scatter(centroids_pca[:, 0], centroids_pca[:, 1], 
+           c='red', 
+           marker='X', 
+           s=300, 
+           edgecolors='black', 
+           linewidth=2,
+           label='Cluster Centroids')
+
+# Annotate centroids with cluster names
+for i, (x, y) in enumerate(centroids_pca):
+    ax.annotate(f'C{i}', 
+                xy=(x, y), 
+                fontsize=12, 
+                fontweight='bold',
+                ha='center',
+                va='center',
+                color='white')
+
+ax.set_xlabel(f'Principal Component 1 ({pca.explained_variance_ratio_[0]*100:.1f}% variance)', fontsize=12)
+ax.set_ylabel(f'Principal Component 2 ({pca.explained_variance_ratio_[1]*100:.1f}% variance)', fontsize=12)
+ax.set_title('District Clusters (PCA Visualization)', fontsize=14, fontweight='bold')
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+plt.colorbar(scatter, label='Cluster ID', ax=ax)
+plt.tight_layout()
+plt.show()
+
+print(f"\n✓ PCA visualization complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Find Similar Districts Function
+# Create function to find similar districts
+def find_similar_districts(district_name, state_name, top_n=5):
+    """
+    Find the most similar districts to a given district.
+    
+    Args:
+        district_name: Name of the target district
+        state_name: State of the target district
+        top_n: Number of similar districts to return
+    
+    Returns:
+        DataFrame with similar districts and similarity scores
+    """
+    # Get target district data
+    target = df[(df['district_name'] == district_name) & (df['state_ut'] == state_name)]
+    
+    if len(target) == 0:
+        print(f"District '{district_name}' in '{state_name}' not found.")
+        return None
+    
+    target_cluster = target['cluster'].values[0]
+    target_features = target[clustering_features].values[0]
+    target_scaled = scaler.transform([target_features])[0]
+    
+    # Get all districts in the same cluster
+    same_cluster = df[df['cluster'] == target_cluster].copy()
+    
+    # Calculate Euclidean distance to target
+    distances = []
+    for idx, row in same_cluster.iterrows():
+        if row['district_name'] == district_name and row['state_ut'] == state_name:
+            continue  # Skip the target district itself
+        
+        features = row[clustering_features].values
+        features_scaled = scaler.transform([features])[0]
+        distance = np.linalg.norm(target_scaled - features_scaled)
+        
+        distances.append({
+            'district_name': row['district_name'],
+            'state_ut': row['state_ut'],
+            'overall_risk_score': row['overall_risk_score'],
+            'risk_category': row['risk_category'],
+            'similarity_score': 100 / (1 + distance),  # Convert distance to similarity (0-100)
+            'cluster': row['cluster'],
+            'cluster_name': row['cluster_name']
+        })
+    
+    # Sort by similarity and return top N
+    similar_df = pd.DataFrame(distances).sort_values('similarity_score', ascending=False).head(top_n)
+    
+    return similar_df
+
+# Test the function with an example
+print("\n" + "=" * 70)
+print("SIMILAR DISTRICTS ANALYSIS")
+print("=" * 70)
+
+# Pick a sample district (e.g., Nicobar from Tamil Nadu if it exists, otherwise first district)
+sample_district = df[df['state_ut'] == 'Tamil Nadu'].iloc[0] if len(df[df['state_ut'] == 'Tamil Nadu']) > 0 else df.iloc[0]
+sample_name = sample_district['district_name']
+sample_state = sample_district['state_ut']
+
+print(f"\n🎯 Finding similar districts to: {sample_name}, {sample_state}")
+print(f"   Risk Score: {sample_district['overall_risk_score']:.1f}")
+print(f"   Cluster: {sample_district['cluster']} ({sample_district['cluster_name']})")
+
+similar_districts = find_similar_districts(sample_name, sample_state, top_n=5)
+
+if similar_districts is not None:
+    print(f"\n📊 Top 5 Most Similar Districts:\n")
+    for idx, row in similar_districts.iterrows():
+        print(f"  {idx+1}. {row['district_name']}, {row['state_ut']}")
+        print(f"     Similarity: {row['similarity_score']:.1f}/100")
+        print(f"     Risk Score: {row['overall_risk_score']:.1f} ({row['risk_category']})")
+        print(f"     Cluster: {row['cluster']} ({row['cluster_name']})")
+        print()
+
+print(f"\n✓ Similar districts analysis complete")
+
+# COMMAND ----------
+
+# DBTITLE 1,Save Clustering Results
+# Save clustering results to Delta table
+print("\n" + "=" * 70)
+print("SAVING CLUSTERING RESULTS")
+print("=" * 70)
+
+# Create table with cluster assignments
+cluster_results = df[[
+    'district_id', 'district_name', 'state_ut',
+    'cluster', 'cluster_name', 'overall_risk_score', 'risk_category',
+    'maternal_risk_score', 'anemia_risk_score', 'vaccination_risk_score',
+    'sanitation_risk_score', 'child_nutrition_risk_score'
+]].copy()
+
+# Convert to Spark DataFrame
+cluster_results_spark = spark.createDataFrame(cluster_results)
+
+# Save to Gold schema
+CLUSTER_TABLE = "workspace.healthgpt.district_clusters"
+
+cluster_results_spark.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .saveAsTable(CLUSTER_TABLE)
+
+print(f"\n✓ Cluster assignments saved to: {CLUSTER_TABLE}")
+print(f"  Records: {cluster_results_spark.count()}")
+print(f"  Columns: {len(cluster_results_spark.columns)}")
+
+# Save clustering model and scaler to MLflow
+# Create signatures for Unity Catalog compatibility
+from mlflow.models import infer_signature
+
+kmeans_signature = infer_signature(X_cluster_scaled, kmeans_final.predict(X_cluster_scaled))
+scaler_signature = infer_signature(X_cluster, scaler.transform(X_cluster))
+
+with mlflow.start_run(run_name="HealthGPT_District_Clustering") as run:
+    # Log parameters
+    mlflow.log_param("n_clusters", optimal_k)
+    mlflow.log_param("algorithm", "KMeans")
+    mlflow.log_param("n_features", len(clustering_features))
+    
+    # Log metrics
+    mlflow.log_metric("silhouette_score", silhouette_score(X_cluster_scaled, cluster_labels))
+    mlflow.log_metric("inertia", kmeans_final.inertia_)
+    
+    # Save cluster profiles
+    cluster_profiles.to_csv("/tmp/cluster_profiles.csv")
+    mlflow.log_artifact("/tmp/cluster_profiles.csv")
+    
+    # Save model and scaler with signatures
+    mlflow.sklearn.log_model(
+        kmeans_final,
+        "kmeans_model",
+        signature=kmeans_signature,
+        registered_model_name="healthgpt_district_clustering"
+    )
+    
+    mlflow.sklearn.log_model(
+        scaler,
+        "feature_scaler",
+        signature=scaler_signature
+    )
+    
+    print(f"\n✓ Clustering model saved to MLflow")
+    print(f"   Run ID: {run.info.run_id}")
+    print(f"   Model: healthgpt_district_clustering")
+
+print(f"\n{'='*70}")
+print(f"✅ District Clustering Complete!")
+print(f"{'='*70}")
+print(f"\n📊 Summary:")
+print(f"  • {optimal_k} district clusters identified")
+print(f"  • {len(df)} districts clustered")
+print(f"  • Silhouette Score: {silhouette_score(X_cluster_scaled, cluster_labels):.4f}")
+print(f"  • Results saved to: {CLUSTER_TABLE}")
+print(f"  • Model registered in MLflow")
+
+# COMMAND ----------
+
 
