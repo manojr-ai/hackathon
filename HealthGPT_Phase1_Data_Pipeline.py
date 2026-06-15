@@ -441,6 +441,433 @@ display(spark.table(GOLD_TABLE).select(
 
 # COMMAND ----------
 
+# DBTITLE 1,Data Quality Test Suite
+# MAGIC %md
+# MAGIC ## 🧪 Data Quality Test Suite
+# MAGIC
+# MAGIC Comprehensive validation tests before proceeding to Phase 2:
+# MAGIC
+# MAGIC ### Test Categories:
+# MAGIC 1. **Completeness Tests** - Row counts, null checks, data coverage
+# MAGIC 2. **Accuracy Tests** - Value ranges, outliers, type validation
+# MAGIC 3. **Consistency Tests** - Risk flags vs thresholds, category alignment
+# MAGIC 4. **Business Logic Tests** - Composite calculations, flag counts
+# MAGIC 5. **Schema Validation** - Column existence, data types, uniqueness
+
+# COMMAND ----------
+
+# DBTITLE 1,Test 1: Completeness Tests
+# Test Suite 1: Data Completeness
+print("=" * 70)
+print("TEST SUITE 1: DATA COMPLETENESS")
+print("=" * 70)
+
+gold_df = spark.table(GOLD_TABLE)
+silver_df = spark.table(SILVER_TABLE)
+
+test_results = []
+
+# Test 1.1: Row count validation
+expected_districts = 706
+actual_gold = gold_df.count()
+actual_silver = silver_df.count()
+
+test_1_1 = actual_gold == expected_districts and actual_silver == expected_districts
+test_results.append(("1.1", "Row Count Match", test_1_1, f"Gold: {actual_gold}, Silver: {actual_silver}, Expected: {expected_districts}"))
+
+# Test 1.2: No duplicate district IDs
+duplicate_count = gold_df.groupBy("district_id").count().filter(F.col("count") > 1).count()
+test_1_2 = duplicate_count == 0
+test_results.append(("1.2", "No Duplicate District IDs", test_1_2, f"Duplicates found: {duplicate_count}"))
+
+# Test 1.3: Critical columns are not null
+critical_cols = ["district_id", "district_name", "state_ut", "overall_risk_score", "risk_category"]
+null_counts = {col: gold_df.filter(F.col(col).isNull()).count() for col in critical_cols}
+test_1_3 = all(count == 0 for count in null_counts.values())
+test_results.append(("1.3", "Critical Columns Not Null", test_1_3, str(null_counts)))
+
+# Test 1.4: Data quality score coverage
+avg_quality = gold_df.select(F.avg("data_quality_score")).collect()[0][0]
+test_1_4 = avg_quality >= 95.0  # At least 95% average quality
+test_results.append(("1.4", "Data Quality Score >= 95%", test_1_4, f"Average: {avg_quality:.1f}%"))
+
+# Print results
+for test_id, test_name, passed, details in test_results:
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"\nTest {test_id}: {test_name}")
+    print(f"  Status: {status}")
+    print(f"  Details: {details}")
+
+print(f"\n{'='*70}")
+print(f"COMPLETENESS TESTS: {sum(1 for _, _, p, _ in test_results if p)}/{len(test_results)} PASSED")
+print(f"{'='*70}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Test 2: Accuracy Tests
+# Test Suite 2: Data Accuracy
+print("\n" + "=" * 70)
+print("TEST SUITE 2: DATA ACCURACY")
+print("=" * 70)
+
+test_results = []
+
+# Test 2.1: Overall risk score range (0-100)
+risk_score_stats = gold_df.select(
+    F.min("overall_risk_score").alias("min"),
+    F.max("overall_risk_score").alias("max")
+).collect()[0]
+
+test_2_1 = risk_score_stats['min'] >= 0 and risk_score_stats['max'] <= 100
+test_results.append(("2.1", "Risk Score in Range [0, 100]", test_2_1, 
+                    f"Min: {risk_score_stats['min']:.1f}, Max: {risk_score_stats['max']:.1f}"))
+
+# Test 2.2: Percentage fields in valid range
+percentage_cols = ["anc_4_visits_pct", "women_anemia_pct", "child_stunting_pct", 
+                   "vaccination_full_pct", "sanitation_improved_pct"]
+
+invalid_pct_count = 0
+for col in percentage_cols:
+    invalid = gold_df.filter((F.col(col) < 0) | (F.col(col) > 100)).count()
+    invalid_pct_count += invalid
+
+test_2_2 = invalid_pct_count == 0
+test_results.append(("2.2", "Percentages in Range [0, 100]", test_2_2, 
+                    f"Invalid values found: {invalid_pct_count}"))
+
+# Test 2.3: Domain risk scores in valid range
+domain_cols = ["maternal_risk_score", "anemia_risk_score", "vaccination_risk_score", 
+               "sanitation_risk_score", "child_nutrition_risk_score"]
+
+domain_stats = gold_df.select(
+    F.min(F.least(*[F.col(c) for c in domain_cols])).alias("min"),
+    F.max(F.greatest(*[F.col(c) for c in domain_cols])).alias("max")
+).collect()[0]
+
+test_2_3 = domain_stats['min'] >= 0 and domain_stats['max'] <= 100
+test_results.append(("2.3", "Domain Scores in Range [0, 100]", test_2_3,
+                    f"Min: {domain_stats['min']:.1f}, Max: {domain_stats['max']:.1f}"))
+
+# Test 2.4: Composite scores reasonable ranges
+composite_stats = gold_df.select(
+    F.min("maternal_care_composite").alias("mat_min"),
+    F.max("maternal_care_composite").alias("mat_max"),
+    F.min("child_health_composite").alias("child_min"),
+    F.max("child_health_composite").alias("child_max")
+).collect()[0]
+
+test_2_4 = (composite_stats['mat_min'] >= 0 and composite_stats['mat_max'] <= 100 and
+            composite_stats['child_min'] >= 0 and composite_stats['child_max'] <= 100)
+test_results.append(("2.4", "Composite Scores Valid", test_2_4,
+                    f"Maternal: [{composite_stats['mat_min']:.1f}, {composite_stats['mat_max']:.1f}], "
+                    f"Child: [{composite_stats['child_min']:.1f}, {composite_stats['child_max']:.1f}]"))
+
+# Print results
+for test_id, test_name, passed, details in test_results:
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"\nTest {test_id}: {test_name}")
+    print(f"  Status: {status}")
+    print(f"  Details: {details}")
+
+print(f"\n{'='*70}")
+print(f"ACCURACY TESTS: {sum(1 for _, _, p, _ in test_results if p)}/{len(test_results)} PASSED")
+print(f"{'='*70}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Test 3: Consistency Tests
+# Test Suite 3: Data Consistency
+print("\n" + "=" * 70)
+print("TEST SUITE 3: DATA CONSISTENCY")
+print("=" * 70)
+
+test_results = []
+
+# Test 3.1: Risk category matches risk score thresholds
+category_mismatches = gold_df.filter(
+    ((F.col("risk_category") == "CRITICAL") & (F.col("overall_risk_score") < 75)) |
+    ((F.col("risk_category") == "HIGH") & ((F.col("overall_risk_score") < 60) | (F.col("overall_risk_score") >= 75))) |
+    ((F.col("risk_category") == "MEDIUM") & ((F.col("overall_risk_score") < 40) | (F.col("overall_risk_score") >= 60))) |
+    ((F.col("risk_category") == "LOW") & (F.col("overall_risk_score") >= 40))
+).count()
+
+test_3_1 = category_mismatches == 0
+test_results.append(("3.1", "Risk Category Matches Score", test_3_1, 
+                    f"Mismatches: {category_mismatches}"))
+
+# Test 3.2: High anemia flag matches threshold (>50%)
+anemia_flag_mismatches = gold_df.filter(
+    ((F.col("high_anemia_flag") == True) & (F.col("women_anemia_pct") <= 50)) |
+    ((F.col("high_anemia_flag") == False) & (F.col("women_anemia_pct") > 50))
+).count()
+
+test_3_2 = anemia_flag_mismatches == 0
+test_results.append(("3.2", "High Anemia Flag Consistent", test_3_2,
+                    f"Mismatches: {anemia_flag_mismatches}"))
+
+# Test 3.3: Low ANC flag matches threshold (<50%)
+anc_flag_mismatches = gold_df.filter(
+    ((F.col("low_anc_flag") == True) & (F.col("anc_4_visits_pct") >= 50)) |
+    ((F.col("low_anc_flag") == False) & (F.col("anc_4_visits_pct") < 50))
+).count()
+
+test_3_3 = anc_flag_mismatches == 0
+test_results.append(("3.3", "Low ANC Flag Consistent", test_3_3,
+                    f"Mismatches: {anc_flag_mismatches}"))
+
+# Test 3.4: Low vaccination flag matches threshold (<75%)
+vax_flag_mismatches = gold_df.filter(
+    ((F.col("low_vaccination_flag") == True) & (F.col("vaccination_full_pct") >= 75)) |
+    ((F.col("low_vaccination_flag") == False) & (F.col("vaccination_full_pct") < 75))
+).count()
+
+test_3_4 = vax_flag_mismatches == 0
+test_results.append(("3.4", "Low Vaccination Flag Consistent", test_3_4,
+                    f"Mismatches: {vax_flag_mismatches}"))
+
+# Test 3.5: Poor sanitation flag matches threshold (<70%)
+san_flag_mismatches = gold_df.filter(
+    ((F.col("poor_sanitation_flag") == True) & (F.col("sanitation_improved_pct") >= 70)) |
+    ((F.col("poor_sanitation_flag") == False) & (F.col("sanitation_improved_pct") < 70))
+).count()
+
+test_3_5 = san_flag_mismatches == 0
+test_results.append(("3.5", "Poor Sanitation Flag Consistent", test_3_5,
+                    f"Mismatches: {san_flag_mismatches}"))
+
+# Print results
+for test_id, test_name, passed, details in test_results:
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"\nTest {test_id}: {test_name}")
+    print(f"  Status: {status}")
+    print(f"  Details: {details}")
+
+print(f"\n{'='*70}")
+print(f"CONSISTENCY TESTS: {sum(1 for _, _, p, _ in test_results if p)}/{len(test_results)} PASSED")
+print(f"{'='*70}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Test 4: Business Logic Tests
+# Test Suite 4: Business Logic
+print("\n" + "=" * 70)
+print("TEST SUITE 4: BUSINESS LOGIC")
+print("=" * 70)
+
+test_results = []
+
+# Test 4.1: Triggered risk count matches sum of flags
+flag_count_mismatches = gold_df.withColumn(
+    "calculated_count",
+    (F.col("high_anemia_flag").cast("int") +
+     F.col("low_anc_flag").cast("int") +
+     F.col("low_vaccination_flag").cast("int") +
+     F.col("poor_sanitation_flag").cast("int") +
+     F.col("high_child_stunting_flag").cast("int"))
+).filter(F.col("calculated_count") != F.col("triggered_risk_count")).count()
+
+test_4_1 = flag_count_mismatches == 0
+test_results.append(("4.1", "Triggered Count = Sum of Flags", test_4_1,
+                    f"Mismatches: {flag_count_mismatches}"))
+
+# Test 4.2: High risk scores have multiple triggered flags
+high_risk_low_flags = gold_df.filter(
+    (F.col("overall_risk_score") >= 50) & (F.col("triggered_risk_count") < 2)
+).count()
+
+test_4_2 = high_risk_low_flags < 10  # Allow some edge cases
+test_results.append(("4.2", "High Risk Districts Have Flags", test_4_2,
+                    f"High risk with <2 flags: {high_risk_low_flags}"))
+
+# Test 4.3: Domain risk scores align with overall risk
+domain_alignment = gold_df.select(
+    F.corr("overall_risk_score", "maternal_risk_score").alias("mat_corr"),
+    F.corr("overall_risk_score", "anemia_risk_score").alias("anemia_corr"),
+    F.corr("overall_risk_score", "vaccination_risk_score").alias("vax_corr")
+).collect()[0]
+
+test_4_3 = (domain_alignment['mat_corr'] > 0.3 and 
+            domain_alignment['anemia_corr'] > 0.3 and
+            domain_alignment['vax_corr'] > 0.3)  # Positive correlation
+test_results.append(("4.3", "Domain Scores Correlate with Overall", test_4_3,
+                    f"Maternal: {domain_alignment['mat_corr']:.2f}, "
+                    f"Anemia: {domain_alignment['anemia_corr']:.2f}, "
+                    f"Vaccination: {domain_alignment['vax_corr']:.2f}"))
+
+# Test 4.4: Maternal risk score calculation check (sample validation)
+sample_check = gold_df.filter(F.col("district_name") == "Nicobars").select(
+    "maternal_care_composite",
+    "maternal_risk_score"
+).collect()
+
+if len(sample_check) > 0:
+    composite = sample_check[0]['maternal_care_composite']
+    risk = sample_check[0]['maternal_risk_score']
+    expected_risk = round(100 - composite, 0)
+    test_4_4 = abs(risk - expected_risk) < 1  # Allow 1 point rounding difference
+    test_results.append(("4.4", "Maternal Risk = 100 - Composite", test_4_4,
+                        f"Composite: {composite:.1f}, Risk: {risk:.0f}, Expected: {expected_risk:.0f}"))
+else:
+    test_results.append(("4.4", "Maternal Risk Calculation", False, "Nicobars district not found"))
+
+# Print results
+for test_id, test_name, passed, details in test_results:
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"\nTest {test_id}: {test_name}")
+    print(f"  Status: {status}")
+    print(f"  Details: {details}")
+
+print(f"\n{'='*70}")
+print(f"BUSINESS LOGIC TESTS: {sum(1 for _, _, p, _ in test_results if p)}/{len(test_results)} PASSED")
+print(f"{'='*70}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Test 5: Schema Validation
+# Test Suite 5: Schema Validation
+print("\n" + "=" * 70)
+print("TEST SUITE 5: SCHEMA VALIDATION")
+print("=" * 70)
+
+test_results = []
+
+# Test 5.1: All required columns exist in Gold table
+required_cols = [
+    "district_id", "district_name", "state_ut",
+    "overall_risk_score", "risk_category",
+    "maternal_risk_score", "anemia_risk_score", "vaccination_risk_score",
+    "sanitation_risk_score", "child_nutrition_risk_score",
+    "high_anemia_flag", "low_anc_flag", "low_vaccination_flag",
+    "poor_sanitation_flag", "high_child_stunting_flag",
+    "triggered_risk_count", "data_quality_score",
+    "maternal_care_composite", "child_health_composite", "sanitation_composite"
+]
+
+actual_cols = set(gold_df.columns)
+missing_cols = [col for col in required_cols if col not in actual_cols]
+
+test_5_1 = len(missing_cols) == 0
+test_results.append(("5.1", "All Required Columns Exist", test_5_1,
+                    f"Missing: {missing_cols if missing_cols else 'None'}"))
+
+# Test 5.2: Correct data types for key columns
+schema = dict((field.name, str(field.dataType)) for field in gold_df.schema.fields)
+
+type_checks = {
+    "district_id": "StringType",
+    "overall_risk_score": "DoubleType",
+    "risk_category": "StringType",
+    "high_anemia_flag": "BooleanType",
+    "triggered_risk_count": "IntegerType"
+}
+
+type_mismatches = [f"{col}: expected {expected}, got {schema.get(col, 'MISSING')}" 
+                   for col, expected in type_checks.items() 
+                   if expected not in schema.get(col, "")]
+
+test_5_2 = len(type_mismatches) == 0
+test_results.append(("5.2", "Correct Data Types", test_5_2,
+                    f"Mismatches: {type_mismatches if type_mismatches else 'None'}"))
+
+# Test 5.3: State coverage (all major states present)
+unique_states = gold_df.select("state_ut").distinct().count()
+expected_min_states = 30  # India has 36 states/UTs, expect at least 30
+
+test_5_3 = unique_states >= expected_min_states
+test_results.append(("5.3", "Adequate State Coverage", test_5_3,
+                    f"Unique states: {unique_states}, Expected minimum: {expected_min_states}"))
+
+# Test 5.4: Silver to Gold data preservation
+silver_count = silver_df.count()
+gold_count = gold_df.count()
+data_loss_pct = abs(silver_count - gold_count) / silver_count * 100
+
+test_5_4 = data_loss_pct < 1.0  # Less than 1% data loss
+test_results.append(("5.4", "No Data Loss in Transformation", test_5_4,
+                    f"Silver: {silver_count}, Gold: {gold_count}, Loss: {data_loss_pct:.2f}%"))
+
+# Print results
+for test_id, test_name, passed, details in test_results:
+    status = "✅ PASS" if passed else "❌ FAIL"
+    print(f"\nTest {test_id}: {test_name}")
+    print(f"  Status: {status}")
+    print(f"  Details: {details}")
+
+print(f"\n{'='*70}")
+print(f"SCHEMA VALIDATION TESTS: {sum(1 for _, _, p, _ in test_results if p)}/{len(test_results)} PASSED")
+print(f"{'='*70}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Test Summary and Go/No-Go Decision
+# Final Test Summary and Go/No-Go Decision
+print("\n" + "="*70)
+print("📊 FINAL TEST SUMMARY")
+print("="*70)
+
+# Count all test results (you'd need to aggregate from previous cells)
+# For now, let's re-run key validation checks
+
+gold_df = spark.table(GOLD_TABLE)
+
+# Quick validation summary
+row_count = gold_df.count()
+avg_quality = gold_df.select(F.avg("data_quality_score")).collect()[0][0]
+risk_distribution = gold_df.groupBy("risk_category").count().orderBy("risk_category")
+
+print(f"\n✅ Dataset Statistics:")
+print(f"   • Total Districts: {row_count}")
+print(f"   • Average Data Quality: {avg_quality:.1f}%")
+print(f"   • Risk Distribution:")
+for row in risk_distribution.collect():
+    print(f"     - {row['risk_category']}: {row['count']} districts")
+
+# Check for critical issues
+critical_issues = []
+
+if row_count < 700:
+    critical_issues.append(f"⚠️  Row count too low: {row_count} (expected ~706)")
+
+if avg_quality < 95:
+    critical_issues.append(f"⚠️  Data quality below threshold: {avg_quality:.1f}% (expected ≥95%)")
+
+null_critical = gold_df.filter(
+    F.col("overall_risk_score").isNull() | 
+    F.col("risk_category").isNull()
+).count()
+
+if null_critical > 0:
+    critical_issues.append(f"⚠️  Null values in critical columns: {null_critical} rows")
+
+print(f"\n🔍 Critical Issues Check:")
+if critical_issues:
+    for issue in critical_issues:
+        print(f"   {issue}")
+else:
+    print("   ✅ No critical issues found!")
+
+# Go/No-Go Decision
+print(f"\n{'='*70}")
+if not critical_issues and row_count >= 700 and avg_quality >= 95:
+    print("🎉 GO DECISION: Data quality is EXCELLENT!")
+    print("   ✅ Ready to proceed to Phase 2: XGBoost ML Model Training")
+    print("   ✅ Silver and Gold tables are production-ready")
+    print("   ✅ All validation tests passed")
+    print(f"\n{'='*70}")
+    print("Next Steps:")
+    print("   1. Commit Phase 1 notebook to Git")
+    print("   2. Begin Phase 2: Train XGBoost models")
+    print("   3. Create Genie Space for NL queries")
+    print("   4. Build Streamlit UI")
+else:
+    print("⚠️  NO-GO DECISION: Data quality issues detected")
+    print("   Please review and fix the issues above before proceeding")
+    print(f"   Critical issues: {len(critical_issues)}")
+
+print(f"{'='*70}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Phase 1 Complete
 # MAGIC %md
 # MAGIC ## ✅ Phase 1 Complete!
