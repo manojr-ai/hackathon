@@ -637,6 +637,75 @@ if page == "Overview":
     
     st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
     
+    # ============================================================================
+    # CARE GAP RADAR CHART - Interactive capability analysis
+    # ============================================================================
+    
+    st.markdown('<div class="section-header">Care Gap Radar - Capability Analysis</div>', unsafe_allow_html=True)
+    
+    # Query care gap scores by capability for the selected state
+    radar_query = '''
+        SELECT 
+            capability,
+            AVG(gap_score) as avg_gap_score
+        FROM public.care_gap_summary
+    '''
+    
+    # Add WHERE clause only if a specific state is selected
+    if selected_state != "All States":
+        radar_query += f" WHERE UPPER(state) = UPPER('{selected_state}')"
+    
+    radar_query += " GROUP BY capability ORDER BY capability"
+    
+    radar_df = query_data(radar_query)
+    
+    if not radar_df.empty:
+        # Create radar chart
+        fig_radar = go.Figure()
+        
+        fig_radar.add_trace(go.Scatterpolar(
+            r=radar_df['avg_gap_score'].tolist(),
+            theta=radar_df['capability'].tolist(),
+            fill='toself',
+            name='Care Gap Score',
+            line=dict(color='#0891b2', width=2),
+            fillcolor='rgba(8, 145, 178, 0.3)',
+            marker=dict(size=8, color='#0891b2')
+        ))
+        
+        fig_radar.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100],
+                    tickfont=dict(size=10),
+                    gridcolor='#e5e7eb'
+                ),
+                angularaxis=dict(
+                    tickfont=dict(size=11, color='#1e293b'),
+                    gridcolor='#e5e7eb'
+                ),
+                bgcolor='white'
+            ),
+            showlegend=False,
+            height=450,
+            margin=dict(l=80, r=80, t=20, b=20),
+            paper_bgcolor='white',
+            font=dict(family="Arial, sans-serif")
+        )
+        
+        st.plotly_chart(fig_radar, use_container_width=True)
+    else:
+        # Fallback: Show sample radar chart with TAMIL NADU data
+        st.markdown('''
+        <div style="background: #f8fafc; padding: 2rem; border-radius: 10px; text-align: center; color: #64748b;">
+            <div style="font-size: 1rem;">📊 No capability data available for the selected filters</div>
+            <div style="font-size: 0.9rem; margin-top: 0.5rem;">Try selecting "All States" or different filters</div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
+    
     # Middle section: Top At-Risk Indicators & Recommended Actions
     col_left, col_right = st.columns([1, 1])
     
