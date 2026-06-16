@@ -1,7 +1,7 @@
 # HealthGPT Care Gap Trust Planner
 
 ## Team Titan - [ Manoj Rayalla, Muthu Natarajan, Jatin Balodhi and Arul Anand ]
-## Apps & Agents for Good Hackathon MLP* 
+## Apps & Agents for Good Hackathon - Minumum Lovable Product 
 
 **HealthGPT Care Gap Trust Planner:** A Databricks App that helps non-technical healthcare planners identify real medical deserts from messy facility claims, evidence scores, geography, and AI-generated action briefs.
 
@@ -145,10 +145,6 @@ HealthGPT Care Gap Trust Planner helps planners separate real care deserts from 
 | Ask HealthGPT | Generates evidence-grounded explanations, review plans, and action briefs. |
 | Architecture / Trust | Shows lineage, scoring logic, and persisted planner decisions. |
 
-
-
-
-**Team Titan**
 
 
 
