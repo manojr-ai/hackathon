@@ -1,0 +1,12 @@
+READY TO COMMIT: Overview Page Redesign
+========================================
+
+Modified Files:
+- healthgpt-planner-v2/app.py (1273 lines, 52KB)
+- healthgpt-planner-v2/app.yaml (updated)
+
+New Files:
+- healthgpt-planner-v2/OVERVIEW_REDESIGN_COMPLETE.md
+- healthgpt-planner-v2/REDESIGN_NOTES.md
+
+All changes are in the healthgpt-planner-v2/ folder.

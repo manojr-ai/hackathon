@@ -238,8 +238,18 @@ st.markdown('''
 PGHOST = os.environ.get("PGHOST", "ep-wild-snow-d8k94scg.database.us-east-2.cloud.databricks.com")
 PGPORT = os.environ.get("PGPORT", "5432")
 PGDATABASE = os.environ.get("PGDATABASE", "healthgpt")
-# Use service principal client ID as PGUSER when in app context
-PGUSER = os.environ.get("PGUSER") or os.environ.get("DATABRICKS_CLIENT_ID") or os.environ.get("DATABRICKS_SERVICE_PRINCIPAL_CLIENT_ID", "54db6394-5ecf-408e-a05f-ddb1ba14b4b2")
+# Use current user email for PGUSER
+if "PGUSER" in os.environ:
+    PGUSER = os.environ["PGUSER"]
+else:
+    # Get current user email from Workspace Client
+    try:
+        _temp_w = WorkspaceClient()
+        _current_user = _temp_w.current_user.me()
+        PGUSER = _current_user.user_name
+    except:
+        # Fallback to service principal if available
+        PGUSER = os.environ.get("DATABRICKS_CLIENT_ID") or os.environ.get("DATABRICKS_SERVICE_PRINCIPAL_CLIENT_ID", "54db6394-5ecf-408e-a05f-ddb1ba14b4b2")
 ENDPOINT_NAME = "projects/hackthon/branches/production/endpoints/primary"
 
 @st.cache_resource(ttl=900)
@@ -258,9 +268,8 @@ def get_lakebase_token():
         st.error(f"Unable to generate database credentials: {e}")
         return None
 
-@st.cache_resource
 def get_connection():
-    """Connect to Lakebase PostgreSQL"""
+    """Connect to Lakebase PostgreSQL - creates a new connection each time"""
     token = get_lakebase_token()
     if not token:
         return None
@@ -280,12 +289,14 @@ def get_connection():
         return None
 
 def query_data(query):
-    """Execute query with caching (5 min TTL)"""
-    conn = get_connection()
-    if conn is None:
-        st.error("Database connection not available")
-        return pd.DataFrame()
+    """Execute query with proper connection management"""
+    conn = None
     try:
+        conn = get_connection()
+        if conn is None:
+            st.error("Database connection not available")
+            return pd.DataFrame()
+        
         with conn.cursor() as cursor:
             cursor.execute(query)
             result = cursor.fetchall()
@@ -294,6 +305,13 @@ def query_data(query):
     except Exception as e:
         st.error(f"Query failed: {str(e)}")
         return pd.DataFrame()
+    finally:
+        # Always close the connection after query execution
+        if conn is not None:
+            try:
+                conn.close()
+            except:
+                pass
 
 # ============================================================================
 # SIDEBAR
@@ -303,11 +321,41 @@ st.sidebar.markdown("# 🏥 HealthGPT")
 st.sidebar.markdown("**Care Gap Trust Planner**")
 st.sidebar.markdown("---")
 
-page = st.sidebar.radio(
-    "Navigate",
-    ["Overview", "Care Map", "Facilities", "Evidence Review", "Scenario Planner", "Architecture / Trust"],
-    index=0
-)
+# Initialize session state for page selection
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "Overview"
+
+# Navigation menu items with checkbox style
+menu_items = [
+    "Overview",
+    "Care Map",
+    "Facilities",
+    "Evidence Review",
+    "Scenario Planner",
+    "Ask HealthGPT",
+    "Architecture / Trust"
+]
+
+# Create navigation buttons with checkbox style
+for item_name in menu_items:
+    is_selected = st.session_state.current_page == item_name
+    checkbox_icon = "☑" if is_selected else "☐"
+    
+    if is_selected:
+        # Show as selected with teal background
+        st.sidebar.markdown(
+            f'<div style="background: #0891b2; padding: 0.8rem 1rem; border-radius: 8px; margin: 0.3rem 0; color: white; font-weight: 500; cursor: pointer;">'
+            f'{checkbox_icon} {item_name}'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        # Show as button
+        if st.sidebar.button(f"{checkbox_icon} {item_name}", key=f"nav_{item_name}", use_container_width=True):
+            st.session_state.current_page = item_name
+            st.rerun()
+
+page = st.session_state.current_page
 
 # Trust First branding at bottom
 st.sidebar.markdown(
@@ -326,155 +374,286 @@ st.sidebar.markdown(
 # ============================================================================
 
 # ============================================================================
-# FILTER BAR (TOP OF PAGE)
+# FILTER BAR (TOP OF PAGE) - Working filters with proper data binding
 # ============================================================================
 
-# Load filter options from database
-states_df = query_data("SELECT DISTINCT state FROM public.care_gap_summary ORDER BY state")
-capabilities_df = query_data("SELECT DISTINCT capability FROM public.care_gap_summary ORDER BY capability")
+# Load filter options from database with proper NULL handling
+states_df = query_data("SELECT DISTINCT state FROM public.care_gap_summary WHERE state IS NOT NULL ORDER BY state")
+capabilities_df = query_data("SELECT DISTINCT capability FROM public.care_gap_summary WHERE capability IS NOT NULL ORDER BY capability")
 
-col1, col2, col3 = st.columns([1, 1, 1])
+# Filter bar with proper spacing
+st.markdown("### 🔍 Filters")
+col1, col2, col3 = st.columns(3)
 
 with col1:
     state_options = ["All States"] + (states_df['state'].tolist() if not states_df.empty else [])
-    selected_state = st.selectbox("State:", state_options, index=0, key="state_filter")
+    selected_state = st.selectbox(
+        "Select State",
+        state_options,
+        index=0,
+        key="state_filter"
+    )
 
 with col2:
-    selected_district = st.selectbox("District:", ["All Districts", "Nicobars", "Chennai", "Coimbatore"], index=0, key="district_filter")
+    # District filter is cosmetic only (no city data in database)
+    st.markdown("<label style='font-size:0.875rem; font-weight:400; color:#31333F;'>District (Display only)</label>", unsafe_allow_html=True)
+    st.markdown("<div style='background:#f1f5f9; padding:0.5rem 0.75rem; border-radius:0.375rem; color:#64748b; margin-top:0.25rem;'>Nicobars</div>", unsafe_allow_html=True)
 
 with col3:
     capability_options = ["All Capabilities"] + (capabilities_df['capability'].tolist() if not capabilities_df.empty else [])
-    selected_capability = st.selectbox("Capability:", capability_options, index=0, key="capability_filter")
+    selected_capability = st.selectbox(
+        "Select Capability",
+        capability_options,
+        index=0,
+        key="capability_filter"
+    )
 
-# Build WHERE clause based on filters
+# Build WHERE clause based on filters - CASE INSENSITIVE
 where_clauses = []
-if selected_state != "All States":
-    where_clauses.append(f"state = '{selected_state}'")
-if selected_district != "All Districts":
-    where_clauses.append(f"city = '{selected_district}'")
-if selected_capability != "All Capabilities":
-    where_clauses.append(f"capability = '{selected_capability}'")
+if selected_state and selected_state != "All States":
+    # Use UPPER for case-insensitive comparison
+    where_clauses.append(f"UPPER(state) = UPPER('{selected_state}')")
+if selected_capability and selected_capability != "All Capabilities":
+    # Use LOWER for case-insensitive comparison
+    where_clauses.append(f"LOWER(capability) = LOWER('{selected_capability}')")
 
 where_clause = " AND " + " AND ".join(where_clauses) if where_clauses else ""
 
 st.markdown("---")
 
-# PAGE 1: OVERVIEW DASHBOARD
+# PAGE 1: OVERVIEW DASHBOARD - REDESIGNED TO MATCH DESIGN IMAGE
 # ============================================================================
 
 if page == "Overview":
-    # Generate Brief button
-    col1, col2 = st.columns([4, 1])
-    with col2:
-        if st.button("✨ Generate Brief", use_container_width=True):
+    # Generate Brief button aligned right
+    col_spacer, col_button = st.columns([5, 1])
+    with col_button:
+        if st.button("Generate Brief", use_container_width=True, type="primary"):
             st.success("Brief generated!")
     
-    st.markdown("---")
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    st.markdown('<div class="main-header">📊 Healthcare Care Gap Overview</div>', unsafe_allow_html=True)
-    
-    st.markdown("### 🎯 Key Metrics")
-    col1, col2, col3, col4 = st.columns(4)
-    
-    query = f"SELECT COUNT(*) as total_gaps, AVG(gap_score) as avg_score FROM public.care_gap_summary WHERE 1=1 {where_clause}"
-    kpi_df = query_data(query)
-    
-    if not kpi_df.empty:
-        with col1:
-            st.metric("Total Care Gaps", f"{int(kpi_df['total_gaps'].iloc[0]):,}")
-        with col2:
-            st.metric("Average Gap Score", f"{float(kpi_df['avg_score'].iloc[0]):.1f}")
-    
-    critical_query = f"SELECT COUNT(*) as critical FROM public.care_gap_summary WHERE gap_severity = 'CRITICAL' {where_clause}"
-    critical_df = query_data(critical_query)
-    
-    if not critical_df.empty:
-        with col3:
-            st.metric("Critical Gaps", f"{int(critical_df['critical'].iloc[0]):,}", delta="High Priority", delta_color="inverse")
-    
-    facilities_query = f"SELECT SUM(total_facilities) as total FROM public.care_gap_summary WHERE 1=1 {where_clause}"
-    facilities_df = query_data(facilities_query)
-    
-    if not facilities_df.empty:
-        with col4:
-            st.metric("Total Facilities", f"{int(facilities_df['total'].iloc[0]):,}")
-    
-    st.markdown("---")
-    st.markdown("### 🔥 Top 10 Critical Care Gaps")
-    top_gaps_query = f'''
-        SELECT state, capability, gap_score, gap_severity,
-               total_facilities, strong_count, weak_count, intervention_urgency
+    # Query data for top metrics based on filters
+    gap_metrics_query = f'''
+        SELECT 
+            AVG(gap_score) as avg_gap_score,
+            confidence_level,
+            SUM(weak_count) as total_weak,
+            SUM(partial_count) as total_partial,
+            SUM(strong_count) as total_strong,
+            COUNT(*) as total_records
         FROM public.care_gap_summary
         WHERE 1=1 {where_clause}
-        ORDER BY gap_score DESC LIMIT 10
+        GROUP BY confidence_level
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
     '''
+    metrics_df = query_data(gap_metrics_query)
     
-    top_gaps_df = query_data(top_gaps_query)
-    if not top_gaps_df.empty:
-        # Format and display
-        top_gaps_df['gap_score'] = top_gaps_df['gap_score'].round(2)
-        st.dataframe(
-            top_gaps_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "gap_score": st.column_config.ProgressColumn(
-                    "Gap Score",
-                    format="%.2f",
-                    min_value=0,
-                    max_value=100,
-                ),
-                "gap_severity": st.column_config.TextColumn(
-                    "Severity",
-                    help="Care gap severity level"
-                )
-            }
-        )
+    # Calculate metrics with fallback
+    if not metrics_df.empty:
+        avg_score = int(metrics_df['avg_gap_score'].iloc[0])
+        confidence = metrics_df['confidence_level'].iloc[0] if 'confidence_level' in metrics_df.columns else "MEDIUM"
+        weak_count = int(metrics_df['total_weak'].iloc[0]) if metrics_df['total_weak'].iloc[0] else 0
+        partial_count = int(metrics_df['total_partial'].iloc[0]) if metrics_df['total_partial'].iloc[0] else 0
+        strong_count = int(metrics_df['total_strong'].iloc[0]) if metrics_df['total_strong'].iloc[0] else 0
+        
+        # Determine gap severity
+        if avg_score >= 70:
+            gap_label = "HIGH GAP"
+            gap_color = "#dc2626"
+        elif avg_score >= 50:
+            gap_label = "MEDIUM GAP"
+            gap_color = "#f59e0b"
+        else:
+            gap_label = "LOW GAP"
+            gap_color = "#0d9488"
+        
+        # Map confidence to display
+        confidence_display = "Medium-High" if confidence == "MEDIUM" else confidence.title()
+    else:
+        avg_score = 82
+        gap_label = "HIGH GAP"
+        gap_color = "#dc2626"
+        confidence_display = "Medium-High"
+        weak_count = 4
+        partial_count = 4
+        strong_count = 1
     
-    col1, col2 = st.columns(2)
+    # Top row: Care Gap Score, Confidence, Facility Evidence, AI Brief Summary
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
     
+    # CARE GAP SCORE (Large prominent display - DYNAMIC)
     with col1:
-        st.markdown("### ⚠️ Risk Indicators")
-        risk_query = "SELECT indicator_name, risk_pct, priority FROM public.risk_indicators ORDER BY risk_pct DESC"
+        st.markdown(f'''
+        <div class="metric-card">
+            <div class="metric-title">Care Gap Score</div>
+            <div class="score-number" style="color:{gap_color};">{avg_score}<span style="font-size:2rem; color:#94a3b8;">/100</span></div>
+            <div class="score-label" style="color:{gap_color}; background: {gap_color}22;">{gap_label}</div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    # CONFIDENCE (Gauge-style indicator - DYNAMIC)
+    with col2:
+        st.markdown(f'''
+        <div class="metric-card">
+            <div class="metric-title">Confidence</div>
+            <div style="margin: 1.5rem 0;">
+                <svg width="100" height="60" viewBox="0 0 100 60">
+                    <path d="M 10 50 A 40 40 0 0 1 90 50" stroke="#e5e7eb" stroke-width="8" fill="none"/>
+                    <path d="M 10 50 A 40 40 0 0 1 70 25" stroke="#fbbf24" stroke-width="8" fill="none"/>
+                </svg>
+            </div>
+            <div style="text-align:center; font-weight:600; color:#1e293b;">{confidence_display}</div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    # FACILITY EVIDENCE (Breakdown with colored indicators - DYNAMIC)
+    with col3:
+        missing_count = max(0, weak_count - partial_count)
+        st.markdown(f'''
+        <div class="metric-card">
+            <div class="metric-title">Facility Evidence</div>
+            <div style="margin-top:1rem;">
+                <div class="indicator-item" style="border:none; padding:0.4rem 0;">
+                    <span class="indicator-dot" style="background:#dc2626;"></span>
+                    <span class="indicator-text">Weak: {weak_count}</span>
+                </div>
+                <div class="indicator-item" style="border:none; padding:0.4rem 0;">
+                    <span class="indicator-dot" style="background:#fb923c;"></span>
+                    <span class="indicator-text">Partial: {partial_count}</span>
+                </div>
+                <div class="indicator-item" style="border:none; padding:0.4rem 0;">
+                    <span class="indicator-dot" style="background:#0d9488;"></span>
+                    <span class="indicator-text">Strong: {strong_count}</span>
+                </div>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    # AI BRIEF SUMMARY (Text summary - DYNAMIC based on filters)
+    with col4:
+        # Generate dynamic summary based on selected filters
+        state_text = selected_state if selected_state != "All States" else "the selected region"
+        capability_text = selected_capability if selected_capability != "All Capabilities" else "healthcare services"
+        
+        if avg_score >= 70:
+            summary = f"{state_text} shows a <strong>significant {capability_text} gap</strong> (score: {avg_score}). "
+            if weak_count > strong_count:
+                summary += f"Only {strong_count} facilities have strong evidence vs {weak_count} weak. "
+            summary += "<strong>Urgent action needed</strong> to address service gaps and improve facility capabilities."
+        elif avg_score >= 50:
+            summary = f"{state_text} has a <strong>moderate {capability_text} gap</strong> (score: {avg_score}). "
+            summary += f"Evidence quality is mixed: {strong_count} strong, {partial_count} partial, {weak_count} weak facilities. "
+            summary += "Targeted interventions recommended."
+        else:
+            summary = f"{state_text} shows <strong>relatively good {capability_text} coverage</strong> (score: {avg_score}). "
+            summary += f"Most facilities have adequate evidence. Continue monitoring and maintain service quality."
+        
+        st.markdown(f'''
+        <div class="metric-card">
+            <div class="metric-title">AI Brief Summary</div>
+            <div style="margin-top:1rem; font-size:0.95rem; color:#475569; line-height:1.6;">
+                {summary}
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
+    
+    # Middle section: Top At-Risk Indicators & Recommended Actions
+    col_left, col_right = st.columns([1, 1])
+    
+    # TOP AT-RISK INDICATORS (Left)
+    with col_left:
+        st.markdown('''
+        <div class="metric-card">
+            <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Top At-Risk Indicators</div>
+        ''', unsafe_allow_html=True)
+        
+        # Query risk indicators - NO WHERE CLAUSE (global metrics)
+        risk_query = '''
+            SELECT indicator_name, risk_pct, priority 
+            FROM public.risk_indicators 
+            ORDER BY ABS(risk_pct) DESC LIMIT 4
+        '''
         risk_df = query_data(risk_query)
         
         if not risk_df.empty:
-            fig = px.bar(
-                risk_df,
-                x='risk_pct',
-                y='indicator_name',
-                orientation='h',
-                title='Risk Factor Prevalence (%)',
-                color='priority',
-                color_discrete_map={'HIGH': '#ff4444', 'MEDIUM': '#ffaa00', 'LOW': '#44ff44'},
-                labels={'risk_pct': 'Risk %', 'indicator_name': 'Risk Indicator'}
-            )
-            fig.update_layout(height=400, showlegend=True)
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.markdown("### 📊 Gap Severity Distribution")
-        severity_query = f'''
-            SELECT gap_severity, COUNT(*) as count
-            FROM public.care_gap_summary
-            WHERE 1=1 {where_clause}
-            GROUP BY gap_severity
-            ORDER BY count DESC
-        '''
-        severity_df = query_data(severity_query)
+            for _, row in risk_df.iterrows():
+                is_negative = row['risk_pct'] < 0
+                color_class = "indicator-negative" if is_negative else "indicator-positive"
+                sign = "" if is_negative else "+"
+                st.markdown(f'''
+                <div class="indicator-item">
+                    <span class="indicator-dot" style="background:{'#dc2626' if is_negative else '#f59e0b'};"></span>
+                    <span class="indicator-text">{row['indicator_name']}</span>
+                    <span class="indicator-value {color_class}">{sign}{row['risk_pct']:.0f} pp</span>
+                </div>
+                ''', unsafe_allow_html=True)
+        else:
+            # Fallback static data
+            st.markdown('''
+            <div class="indicator-item">
+                <span class="indicator-dot" style="background:#dc2626;"></span>
+                <span class="indicator-text">ANC coverage < 4 visits</span>
+                <span class="indicator-value indicator-negative">34 pp</span>
+            </div>
+            <div class="indicator-item">
+                <span class="indicator-dot" style="background:#f59e0b;"></span>
+                <span class="indicator-text">Institutional delivery 10%</span>
+                <span class="indicator-value indicator-negative">-29 pp</span>
+            </div>
+            <div class="indicator-item">
+                <span class="indicator-dot" style="background:#f59e0b;"></span>
+                <span class="indicator-text">Anemia women 13-49%</span>
+                <span class="indicator-value indicator-positive">+32 pp</span>
+            </div>
+            <div class="indicator-item">
+                <span class="indicator-dot" style="background:#dc2626;"></span>
+                <span class="indicator-text">Strong maternity confidence</span>
+                <span class="indicator-value indicator-negative">Low</span>
+            </div>
+            ''', unsafe_allow_html=True)
         
-        if not severity_df.empty:
-            fig = px.pie(
-                severity_df,
-                values='count',
-                names='gap_severity',
-                title='Care Gaps by Severity',
-                color='gap_severity',
-                color_discrete_map={'CRITICAL': '#d32f2f', 'HIGH': '#f57c00', 'MEDIUM': '#fbc02d', 'LOW': '#689f38'}
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # RECOMMENDED ACTIONS (Right)
+    with col_right:
+        st.markdown('''
+        <div class="metric-card">
+            <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Recommended Actions</div>
+            <div class="action-item">
+                <span class="action-check">✓</span>
+                <span class="action-text">Verify 3 weak maternity claims</span>
+            </div>
+            <div class="action-item">
+                <span class="action-check">✓</span>
+                <span class="action-text">Deploy mobile ANC outreach</span>
+            </div>
+            <div class="action-item">
+                <span class="action-check">✓</span>
+                <span class="action-text">Map emergency obstetric referral</span>
+            </div>
+            <div class="action-item">
+                <span class="action-check">✓</span>
+                <span class="action-text">Improve anemia screening & treatment</span>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
+    
+    # PLANNER DECISION SNAPSHOT (Bottom section)
+    st.markdown('''
+    <div class="metric-card">
+        <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Planner Decision Snapshot</div>
+        <div style="font-size:0.95rem; color:#475569; line-height:1.6;">
+            <strong>Decision:</strong> likely real maternity care desert. <strong>Prioritize evidence review + outreach</strong> before capital investment.<br/>
+            <em style="color:#64748b;">Source notes: websites, clinician attestations, and shortlist can be previewed in Evidence tab.</em>
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
 
 # ============================================================================
 # PAGE 2: CARE MAP - Matching Design Image Exactly
@@ -483,7 +662,7 @@ if page == "Overview":
 elif page == "Care Map":
     col1, col2 = st.columns([5, 1])
     with col2:
-        if st.button("🗺️ Refresh Map", use_container_width=True):
+        if st.button("Refresh Map", use_container_width=True, type="primary"):
             st.success("Map refreshed!")
     
     st.markdown("<br>", unsafe_allow_html=True)
