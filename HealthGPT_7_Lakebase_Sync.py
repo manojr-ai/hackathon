@@ -22,11 +22,11 @@ print("=" * 70)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-LAKEBASE_HOST = "ep-wild-snow-d8k94scg.database.us-east-2.cloud.databricks.com"
+LAKEBASE_HOST = "ep-purple-mud-d83dhgkj.database.us-east-2.cloud.databricks.com"
 LAKEBASE_PORT = 5432
 LAKEBASE_DB = "healthgpt"
 LAKEBASE_USER = "manoj.rayalla@acuitybrands.com"
-ENDPOINT_NAME = "projects/hackthon/branches/production/endpoints/primary"
+ENDPOINT_NAME = "projects/hackathan2/branches/production/endpoints/primary"
 BATCH_SIZE = 500  # rows per PostgreSQL commit batch
 
 print(f"\nTarget host : {LAKEBASE_HOST}")
@@ -479,4 +479,3 @@ print(f"""
   App is ready at:
   https://healthgpt-care-gap-planner-7474652404991785.aws.databricksapps.com
 """)
-
