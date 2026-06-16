@@ -644,16 +644,90 @@ if page == "Overview":
     
     st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
     
-    # PLANNER DECISION SNAPSHOT (Bottom section)
-    st.markdown('''
-    <div class="metric-card">
-        <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Planner Decision Snapshot</div>
-        <div style="font-size:0.95rem; color:#475569; line-height:1.6;">
-            <strong>Decision:</strong> likely real maternity care desert. <strong>Prioritize evidence review + outreach</strong> before capital investment.<br/>
-            <em style="color:#64748b;">Source notes: websites, clinician attestations, and shortlist can be previewed in Evidence tab.</em>
+    # CARE GAP RADAR (Bottom left) and PLANNER DECISION SNAPSHOT (Bottom right)
+    col_radar, col_snapshot = st.columns([1, 1])
+    
+    with col_radar:
+        st.markdown('''
+        <div class="metric-card">
+            <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Care Gap Radar</div>
+        ''', unsafe_allow_html=True)
+        
+        # Query care gap data by capability for radar chart
+        radar_query = f'''
+            SELECT 
+                capability,
+                AVG(gap_score) as avg_gap
+            FROM public.care_gap_summary
+            WHERE 1=1 {where_clause}
+            GROUP BY capability
+            ORDER BY capability
+        '''
+        radar_df = query_data(radar_query)
+        
+        if not radar_df.empty:
+            # Create radar chart using plotly
+            import plotly.graph_objects as go
+            
+            # Convert gap scores to numeric and handle any issues
+            radar_df['avg_gap'] = pd.to_numeric(radar_df['avg_gap'], errors='coerce').fillna(0)
+            
+            # Capitalize capability names for display
+            radar_df['capability_display'] = radar_df['capability'].str.title()
+            
+            fig = go.Figure()
+            
+            fig.add_trace(go.Scatterpolar(
+                r=radar_df['avg_gap'].tolist(),
+                theta=radar_df['capability_display'].tolist(),
+                fill='toself',
+                fillcolor='rgba(8, 145, 178, 0.2)',
+                line=dict(color='#0891b2', width=2),
+                marker=dict(size=8, color='#0891b2'),
+                name='Gap Score'
+            ))
+            
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, 100],
+                        showline=False,
+                        showgrid=True,
+                        gridcolor='#e5e7eb',
+                        tickfont=dict(size=10, color='#64748b')
+                    ),
+                    angularaxis=dict(
+                        showline=False,
+                        showgrid=True,
+                        gridcolor='#e5e7eb',
+                        tickfont=dict(size=11, color='#1e293b', weight=500)
+                    ),
+                    bgcolor='white'
+                ),
+                showlegend=False,
+                height=350,
+                margin=dict(l=60, r=60, t=20, b=20),
+                paper_bgcolor='white',
+                plot_bgcolor='white'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No data available for radar chart")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col_snapshot:
+        st.markdown('''
+        <div class="metric-card">
+            <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Planner Decision Snapshot</div>
+            <div style="font-size:0.95rem; color:#475569; line-height:1.6;">
+                <strong>Decision:</strong> likely real maternity care desert. <strong>Prioritize evidence review + outreach</strong> before capital investment.<br/>
+                <em style="color:#64748b;">Source notes: websites, clinician attestations, and shortlist can be previewed in Evidence tab.</em>
+            </div>
         </div>
-    </div>
-    ''', unsafe_allow_html=True)
+        ''', unsafe_allow_html=True)
 
 # ============================================================================
 # PAGE 2: CARE MAP - Matching Design Image Exactly
