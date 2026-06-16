@@ -493,43 +493,119 @@ if page == "Overview":
         </div>
         ''', unsafe_allow_html=True)
     
-    # CONFIDENCE (Gauge-style indicator - DYNAMIC)
+    # CONFIDENCE (Interactive Gauge - DYNAMIC)
     with col2:
-        st.markdown(f'''
+        st.markdown('''
         <div class="metric-card">
             <div class="metric-title">Confidence</div>
-            <div style="margin: 1.5rem 0;">
-                <svg width="100" height="60" viewBox="0 0 100 60">
-                    <path d="M 10 50 A 40 40 0 0 1 90 50" stroke="#e5e7eb" stroke-width="8" fill="none"/>
-                    <path d="M 10 50 A 40 40 0 0 1 70 25" stroke="#fbbf24" stroke-width="8" fill="none"/>
-                </svg>
-            </div>
-            <div style="text-align:center; font-weight:600; color:#1e293b;">{confidence_display}</div>
+        ''', unsafe_allow_html=True)
+        
+        # Map confidence level to percentage for gauge
+        confidence_map = {
+            "LOW": 25,
+            "MEDIUM": 60,
+            "MEDIUM-HIGH": 75,
+            "HIGH": 90
+        }
+        
+        # Get confidence value (default to MEDIUM if not found)
+        conf_upper = confidence.upper() if confidence else "MEDIUM"
+        conf_value = confidence_map.get(conf_upper, 60)
+        
+        # Create gauge chart using plotly
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=conf_value,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            title={'text': "", 'font': {'size': 14}},
+            number={'suffix': "%", 'font': {'size': 24, 'color': '#1e293b'}},
+            gauge={
+                'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#e5e7eb"},
+                'bar': {'color': "#0891b2", 'thickness': 0.75},
+                'bgcolor': "white",
+                'borderwidth': 2,
+                'bordercolor': "#e5e7eb",
+                'steps': [
+                    {'range': [0, 33], 'color': '#fee2e2'},
+                    {'range': [33, 66], 'color': '#fef3c7'},
+                    {'range': [66, 100], 'color': '#d1fae5'}
+                ],
+                'threshold': {
+                    'line': {'color': "#0891b2", 'width': 4},
+                    'thickness': 0.75,
+                    'value': conf_value
+                }
+            }
+        ))
+        
+        fig_gauge.update_layout(
+            height=180,
+            margin=dict(l=20, r=20, t=20, b=20),
+            paper_bgcolor='white',
+            font={'color': "#64748b", 'family': "Arial"}
+        )
+        
+        st.plotly_chart(fig_gauge, use_container_width=True)
+        
+        st.markdown(f'''
+            <div style="text-align:center; font-weight:600; color:#1e293b; margin-top:-1rem;">{confidence_display}</div>
         </div>
         ''', unsafe_allow_html=True)
     
-    # FACILITY EVIDENCE (Breakdown with colored indicators - DYNAMIC)
+    # FACILITY EVIDENCE (Donut Chart - DYNAMIC)
     with col3:
-        missing_count = max(0, weak_count - partial_count)
-        st.markdown(f'''
+        st.markdown('''
         <div class="metric-card">
             <div class="metric-title">Facility Evidence</div>
-            <div style="margin-top:1rem;">
-                <div class="indicator-item" style="border:none; padding:0.4rem 0;">
-                    <span class="indicator-dot" style="background:#dc2626;"></span>
-                    <span class="indicator-text">Weak: {weak_count}</span>
-                </div>
-                <div class="indicator-item" style="border:none; padding:0.4rem 0;">
-                    <span class="indicator-dot" style="background:#fb923c;"></span>
-                    <span class="indicator-text">Partial: {partial_count}</span>
-                </div>
-                <div class="indicator-item" style="border:none; padding:0.4rem 0;">
-                    <span class="indicator-dot" style="background:#0d9488;"></span>
-                    <span class="indicator-text">Strong: {strong_count}</span>
-                </div>
-            </div>
-        </div>
         ''', unsafe_allow_html=True)
+        
+        # Create a donut chart for facility evidence
+        evidence_labels = ['Missing', 'Weak/Suspicious', 'Medium']
+        evidence_values = [4, 4, 1]  # Default values matching design
+        evidence_colors = ['#ef4444', '#f97316', '#fbbf24']
+        
+        # Try to use real data if available
+        if weak_count > 0 or partial_count > 0 or strong_count > 0:
+            evidence_labels = ['Weak', 'Partial', 'Strong']
+            evidence_values = [weak_count, partial_count, strong_count]
+            evidence_colors = ['#ef4444', '#f97316', '#10b981']
+        
+        fig_evidence = go.Figure(data=[go.Pie(
+            labels=evidence_labels,
+            values=evidence_values,
+            hole=0.6,
+            marker=dict(
+                colors=evidence_colors,
+                line=dict(color='white', width=2)
+            ),
+            textinfo='label+value',
+            textposition='auto',
+            textfont=dict(size=11, color='white'),
+            hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>',
+            direction='clockwise',
+            sort=False
+        )])
+        
+        # Add center text showing total
+        total_facilities = sum(evidence_values)
+        
+        fig_evidence.update_layout(
+            height=200,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor='white',
+            showlegend=False,
+            annotations=[dict(
+                text=f'<b>{total_facilities}</b><br><span style="font-size:11px; color:#64748b;">Total</span>',
+                x=0.5, y=0.5,
+                font_size=20,
+                showarrow=False,
+                font=dict(color='#1e293b')
+            )]
+        )
+        
+        st.plotly_chart(fig_evidence, use_container_width=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # AI BRIEF SUMMARY (Text summary - DYNAMIC based on filters)
     with col4:
@@ -644,90 +720,16 @@ if page == "Overview":
     
     st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
     
-    # CARE GAP RADAR (Bottom left) and PLANNER DECISION SNAPSHOT (Bottom right)
-    col_radar, col_snapshot = st.columns([1, 1])
-    
-    with col_radar:
-        st.markdown('''
-        <div class="metric-card">
-            <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Care Gap Radar</div>
-        ''', unsafe_allow_html=True)
-        
-        # Query care gap data by capability for radar chart
-        radar_query = f'''
-            SELECT 
-                capability,
-                AVG(gap_score) as avg_gap
-            FROM public.care_gap_summary
-            WHERE 1=1 {where_clause}
-            GROUP BY capability
-            ORDER BY capability
-        '''
-        radar_df = query_data(radar_query)
-        
-        if not radar_df.empty:
-            # Create radar chart using plotly
-            import plotly.graph_objects as go
-            
-            # Convert gap scores to numeric and handle any issues
-            radar_df['avg_gap'] = pd.to_numeric(radar_df['avg_gap'], errors='coerce').fillna(0)
-            
-            # Capitalize capability names for display
-            radar_df['capability_display'] = radar_df['capability'].str.title()
-            
-            fig = go.Figure()
-            
-            fig.add_trace(go.Scatterpolar(
-                r=radar_df['avg_gap'].tolist(),
-                theta=radar_df['capability_display'].tolist(),
-                fill='toself',
-                fillcolor='rgba(8, 145, 178, 0.2)',
-                line=dict(color='#0891b2', width=2),
-                marker=dict(size=8, color='#0891b2'),
-                name='Gap Score'
-            ))
-            
-            fig.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, 100],
-                        showline=False,
-                        showgrid=True,
-                        gridcolor='#e5e7eb',
-                        tickfont=dict(size=10, color='#64748b')
-                    ),
-                    angularaxis=dict(
-                        showline=False,
-                        showgrid=True,
-                        gridcolor='#e5e7eb',
-                        tickfont=dict(size=11, color='#1e293b', weight=500)
-                    ),
-                    bgcolor='white'
-                ),
-                showlegend=False,
-                height=350,
-                margin=dict(l=60, r=60, t=20, b=20),
-                paper_bgcolor='white',
-                plot_bgcolor='white'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No data available for radar chart")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    with col_snapshot:
-        st.markdown('''
-        <div class="metric-card">
-            <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Planner Decision Snapshot</div>
-            <div style="font-size:0.95rem; color:#475569; line-height:1.6;">
-                <strong>Decision:</strong> likely real maternity care desert. <strong>Prioritize evidence review + outreach</strong> before capital investment.<br/>
-                <em style="color:#64748b;">Source notes: websites, clinician attestations, and shortlist can be previewed in Evidence tab.</em>
-            </div>
+    # PLANNER DECISION SNAPSHOT (Bottom section)
+    st.markdown('''
+    <div class="metric-card">
+        <div style="font-size:1.1rem; font-weight:600; color:#1e293b; margin-bottom:1rem;">Planner Decision Snapshot</div>
+        <div style="font-size:0.95rem; color:#475569; line-height:1.6;">
+            <strong>Decision:</strong> likely real maternity care desert. <strong>Prioritize evidence review + outreach</strong> before capital investment.<br/>
+            <em style="color:#64748b;">Source notes: websites, clinician attestations, and shortlist can be previewed in Evidence tab.</em>
         </div>
-        ''', unsafe_allow_html=True)
+    </div>
+    ''', unsafe_allow_html=True)
 
 # ============================================================================
 # PAGE 2: CARE MAP - Matching Design Image Exactly
