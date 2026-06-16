@@ -194,6 +194,98 @@ print("\n➡️  Next: Run Notebook 2 (Gold Layer)")
 
 # COMMAND ----------
 
+# DBTITLE 1,Backup Silver Table
+# ============================================================================
+# BACKUP SILVER TABLE
+# ============================================================================
+print("\n" + "="*80)
+print("BACKING UP SILVER TABLE")
+print("="*80)
+
+SILVER_TABLE = "workspace.healthgpt.facilities_silver"
+BACKUP_TABLE = "workspace.healthgpt.facilities_silver_backup"
+
+print(f"\n📂 Source: {SILVER_TABLE}")
+print(f"💾 Backup: {BACKUP_TABLE}")
+
+# Create backup table
+spark.sql(f"""
+    CREATE OR REPLACE TABLE {BACKUP_TABLE}
+    AS SELECT * FROM {SILVER_TABLE}
+""")
+
+# Verify backup
+original_count = spark.table(SILVER_TABLE).count()
+backup_count = spark.table(BACKUP_TABLE).count()
+
+print(f"\n✅ Backup created successfully!")
+print(f"   • Original table: {original_count:,} records")
+print(f"   • Backup table: {backup_count:,} records")
+print(f"   • Backup location: {BACKUP_TABLE}")
+
+# Show data quality distribution in original
+print("\n📊 Data Quality Distribution (Original):")
+quality_dist = spark.table(SILVER_TABLE).groupBy("data_quality").count().orderBy("data_quality").collect()
+for row in quality_dist:
+    print(f"   {row.data_quality}: {row['count']:,}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Delete Non-Complete Records from Silver
+# ============================================================================
+# DELETE NON-COMPLETE RECORDS FROM SILVER TABLE
+# ============================================================================
+print("\n" + "="*80)
+print("DELETING NON-COMPLETE RECORDS FROM SILVER TABLE")
+print("="*80)
+
+SILVER_TABLE = "workspace.healthgpt.facilities_silver"
+
+print(f"\n🗑️  Target: {SILVER_TABLE}")
+print(f"⚠️  Condition: data_quality != 'COMPLETE'")
+
+# Count records before deletion
+before_count = spark.table(SILVER_TABLE).count()
+complete_count = spark.table(SILVER_TABLE).filter("data_quality = 'COMPLETE'").count()
+non_complete_count = spark.table(SILVER_TABLE).filter("data_quality != 'COMPLETE'").count()
+
+print(f"\n📊 Before deletion:")
+print(f"   • Total records: {before_count:,}")
+print(f"   • COMPLETE records: {complete_count:,}")
+print(f"   • Non-COMPLETE records (to delete): {non_complete_count:,}")
+
+# Execute DELETE statement
+print(f"\n🛡️  Executing DELETE...")
+spark.sql(f"""
+    DELETE FROM {SILVER_TABLE}
+    WHERE data_quality != 'COMPLETE' OR upper(state) not in (
+  'ANDHRA PRADESH', 'ARUNACHAL PRADESH', 'ASSAM', 'BIHAR', 'CHHATTISGARH', 'GOA', 'GUJARAT', 
+  'HARYANA', 'HIMACHAL PRADESH', 'JHARKHAND', 'KARNATAKA', 'KERALA', 'MADHYA PRADESH', 
+  'MAHARASHTRA', 'MANIPUR', 'MEGHALAYA', 'MIZORAM', 'NAGALAND', 'ODISHA', 'PUNJAB', 
+  'RAJASTHAN', 'SIKKIM', 'TAMIL NADU', 'TELANGANA', 'TRIPURA', 'UTTAR PRADESH', 
+  'UTTARAKHAND', 'WEST BENGAL', 'DELHI', 'PUDUCHERRY', 'JAMMU AND KASHMIR', 'LADAKH', 
+  'ANDAMAN AND NICOBAR ISLANDS', 'CHANDIGARH', 'DADRA AND NAGAR HAVELI AND DAMAN AND DIU', 
+  'LAKSHADWEEP'
+)
+""")
+
+# Count records after deletion
+after_count = spark.table(SILVER_TABLE).count()
+deleted_count = before_count - after_count
+
+print(f"\n✅ Deletion complete!")
+print(f"   • Records deleted: {deleted_count:,}")
+print(f"   • Records remaining: {after_count:,}")
+print(f"   • All remaining records have data_quality = 'COMPLETE'")
+
+# Verify - all remaining records should be COMPLETE
+quality_check = spark.table(SILVER_TABLE).groupBy("data_quality").count().collect()
+print(f"\n🔍 Verification:")
+for row in quality_check:
+    print(f"   {row.data_quality}: {row['count']:,}")
+
+# COMMAND ----------
+
 # DBTITLE 1,Create App-Ready Lakebase Tables
 # ============================================================================
 # APP-READY LAKEBASE TABLES (Summary tables for fast app queries)
@@ -328,7 +420,3 @@ print("  • workspace.healthgpt.state_summary (for Overview & Map)")
 print("  • workspace.healthgpt.facility_summary (for Evidence Detail)")
 print("  • workspace.healthgpt.risk_indicators_summary (for Overview)")
 print("\n➡️ Next: Build Streamlit app (healthgpt_app.py)")
-
-# COMMAND ----------
-
-
