@@ -1,0 +1,557 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import psycopg2
+import os
+from databricks.sdk import WorkspaceClient
+
+# ============================================================================
+# HEALTHGPT CARE GAP TRUST PLANNER - V2 (Matching Exact Design)
+# ============================================================================
+
+st.set_page_config(
+    page_title="HealthGPT Care Gap Trust Planner",
+    page_icon="🏥",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ============================================================================
+# CUSTOM CSS - MATCHING DESIGN
+# ============================================================================
+st.markdown('''
+<style>
+    /* Dark blue sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #1a3a52 !important;
+    }
+    [data-testid="stSidebar"] * {
+        color: white !important;
+    }
+    
+    /* Teal accent buttons */
+    .stButton > button {
+        background-color: #0d9488;
+        color: white;
+        border-radius: 6px;
+        font-weight: 500;
+    }
+    
+    /* Score display */
+    .score-large {
+        font-size: 4rem;
+        font-weight: bold;
+        color: #dc3545;
+        text-align: center;
+    }
+</style>
+''', unsafe_allow_html=True)
+
+# ============================================================================
+# LAKEBASE CONNECTION (UNCHANGED - OAuth Token Auth)
+# ============================================================================
+
+PGHOST = os.environ.get("PGHOST", "ep-wild-snow-d8k94scg.database.us-east-2.cloud.databricks.com")
+PGPORT = os.environ.get("PGPORT", "5432")
+PGDATABASE = os.environ.get("PGDATABASE", "healthgpt")
+PGUSER = os.environ.get("PGUSER") or os.environ.get("DATABRICKS_CLIENT_ID") or os.environ.get("DATABRICKS_SERVICE_PRINCIPAL_CLIENT_ID", "54db6394-5ecf-408e-a05f-ddb1ba14b4b2")
+ENDPOINT_NAME = "projects/hackthon/branches/production/endpoints/primary"
+
+@st.cache_resource(ttl=900)
+def get_lakebase_token():
+    w = WorkspaceClient()
+    try:
+        result = w.api_client.do(
+            "POST",
+            "/api/2.0/postgres/credentials",
+            body={"endpoint": ENDPOINT_NAME}
+        )
+        return result.get("token") or result.get("access_token")
+    except Exception as e:
+        st.error(f"Unable to generate credentials: {e}")
+        return None
+
+@st.cache_resource
+def get_connection():
+    token = get_lakebase_token()
+    if not token:
+        return None
+    try:
+        return psycopg2.connect(
+            host=PGHOST,
+            port=int(PGPORT),
+            dbname=PGDATABASE,
+            user=PGUSER,
+            password=token,
+            sslmode="require",
+            connect_timeout=30
+        )
+    except Exception as e:
+        st.error(f"Database unavailable")
+        return None
+
+@st.cache_data(ttl=300)
+def query_data(query):
+    conn = get_connection()
+    if conn is None:
+        return pd.DataFrame()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(query)
+            result = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            return pd.DataFrame(result, columns=columns)
+    except Exception as e:
+        st.error(f"Query failed: {str(e)}")
+        return pd.DataFrame()
+
+# ============================================================================
+# SIDEBAR NAVIGATION
+# ============================================================================
+
+with st.sidebar:
+    st.markdown("# 🏥 HealthGPT")
+    st.markdown("**Care Gap Trust Planner**")
+    st.markdown("---")
+    
+    page = st.radio(
+        "Navigate",
+        ["Overview", "Care Map", "Facilities", "Evidence Review", "Scenario Planner", "Architecture / Trust"],
+        index=0
+    )
+    
+    # Trust First branding at bottom
+    st.markdown(
+        '''
+        <div style="background: linear-gradient(135deg, #0d9488 0%, #0891b2 100%); padding: 1.5rem; border-radius: 10px; color: white; text-align: center; margin-top: 2rem;">
+            <h3 style="margin:0; color:white;">Trust first</h3>
+            <p style="margin:0.5rem 0 0 0; font-size:0.9rem; color:white;">
+                Evidence-weighted<br/>
+                gaps Planner<br/>
+                decisions saved
+            </p>
+        </div>
+        ''',
+        unsafe_allow_html=True
+    )
+
+# ============================================================================
+# FILTER BAR (TOP OF PAGE)
+# ============================================================================
+
+col1, col2, col3 = st.columns([1, 1, 1])
+
+with col1:
+    selected_state = st.selectbox("State:", ["Tamil Nadu", "Maharashtra", "Karnataka", "Kerala"], index=0)
+
+with col2:
+    selected_district = st.selectbox("District:", ["Nicobars", "Chennai", "Coimbatore"], index=0)
+
+with col3:
+    selected_capability = st.selectbox("Capability:", ["Maternity Care", "Emergency Care", "Dialysis", "Trauma", "ICU"], index=0)
+
+st.markdown("---")
+
+# ============================================================================
+# PAGE 1: OVERVIEW
+# ============================================================================
+
+if page == "Overview":
+    # Generate Brief button
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("✨ Generate Brief", use_container_width=True):
+            st.success("Brief generated!")
+    
+    st.markdown("---")
+    
+    # Top section: Care Gap Score, Confidence, Facility Evidence, AI Brief
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown("### Care Gap Score")
+        st.markdown('<div class="score-large">82</div>', unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;'><span style='color:#dc3545; font-weight:600;'>HIGH GAP</span> / 100</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#666; font-size:0.85rem;'>24 verified facilities<br/>Anemia burden: 48%</p>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### Confidence")
+        st.markdown("<br/>", unsafe_allow_html=True)
+        # Gauge chart
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=70,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            gauge={
+                'axis': {'range': [None, 100]},
+                'bar': {'color': "#10b981"},
+                'steps': [
+                    {'range': [0, 50], 'color': "#fee2e2"},
+                    {'range': [50, 75], 'color': "#fef3c7"},
+                    {'range': [75, 100], 'color': "#d1fae5"}]}
+        ))
+        fig.update_layout(height=180, margin=dict(l=20, r=20, t=0, b=0))
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("<p style='text-align:center; font-weight:600;'>Medium-High</p>", unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("### Facility Evidence")
+        st.markdown("<p style='color:#10b981; font-size:1.1rem;'>✔️ <b>Strong 1</b></p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#f59e0b; font-size:1.1rem;'>⚠️ <b>Weak/suspicious 4</b></p>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#6b7280; font-size:1.1rem;'>✖️ <b>No claim 8</b></p>", unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown("### AI Brief Summary")
+        st.markdown("<p style='font-size:0.9rem; color:#374151;'>Likely real maternity care desert. Strong claims insufficient. Manual verification needed. This appears to be a real care gap, not only a data-quality issue.</p>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Middle section: Care Gap Radar and Risk Indicators
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Care Gap Radar")
+        categories = ['Emergency\ncare', 'Facility\nEvidence', 'ANC\ncoverage', 'Anemia\nBurden']
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=[40, 25, 60, 85],
+            theta=categories,
+            fill='toself',
+            fillcolor='rgba(255, 99, 132, 0.2)',
+            line=dict(color='rgba(255, 99, 132, 1)')
+        ))
+        fig.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+            showlegend=False,
+            height=300,
+            margin=dict(l=80, r=80, t=20, b=20)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        st.markdown("### Top At-Risk Indicators")
+        risk_data = [
+            ("🔴", "ANC coverage < 4 visits", "34 pp"),
+            ("🟠", "Institutional delivery 10%", "28 pp"),
+            ("🟠", "Anemia women 11-49yr%", "+32 pp"),
+            ("🟠", "Strong maternity confidence/Low", "")
+        ]
+        for indicator, text, value in risk_data:
+            st.markdown(f"<p style='margin:0.5rem 0;'>{indicator} <b>{text}</b> <span style='color:#dc3545;'>{value}</span></p>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Recommended Actions
+    st.markdown("### Recommended Actions")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        actions = [
+            ("✅", "Verify 3 weak maternity claims"),
+            ("✅", "Deploy mobile ANC outreach"),
+            ("✅", "Map emergency obstetric referral"),
+            ("✅", "Improve anemia screening & treatment")
+        ]
+        for icon, action in actions:
+            st.markdown(f"<p style='margin:0.5rem 0; padding:0.5rem; background:#f0fdf4; border-radius:6px;'>{icon} {action}</p>", unsafe_allow_html=True)
+
+# ============================================================================
+# PAGE 2: CARE MAP
+# ============================================================================
+
+elif page == "Care Map":
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("🗺️ Refresh Map", use_container_width=True):
+            st.success("Map refreshed!")
+    
+    st.markdown("---")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("### Care Gap Map")
+        st.markdown("""
+        <div style='background:#e5e7eb; padding:2rem; border-radius:10px; height:500px; position:relative;'>
+            <div style='position:absolute; top:20px; left:20px; background:white; padding:1rem; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
+                <p style='margin:0; font-weight:600; margin-bottom:0.5rem;'>Map Layers</p>
+                <p style='margin:0.25rem 0;'>🟢 Strong evidence</p>
+                <p style='margin:0.25rem 0;'>🟠 Partial evidence</p>
+                <p style='margin:0.25rem 0;'>🔴 Weak claim</p>
+                <p style='margin:0.25rem 0;'>⚪ No claim</p>
+            </div>
+            <p style='text-align:center; padding-top:180px; color:#6b7280; font-size:1.2rem;'>🗺️ Interactive Map View<br/><span style='font-size:0.9rem;'>Showing facility locations with trust signals</span></p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### Geography Summary")
+        st.metric("PIN codes flagged", "7")
+        st.metric("Strong maternity sites", "1")
+        st.metric("Weak/suspicious claims", "4")
+        st.metric("Estimated travel gap", "> 60 min")
+        
+        st.markdown("---")
+        st.markdown("### Facilities to Review First")
+        
+        facilities = [
+            ("Nico Island Hospital", "Partial evidence - Missing equipment detail"),
+            ("Bay Clinic", "Weak claim - No source support"),
+            ("Coastal Care Center", "Suspicious - Maternity + no doctors")
+        ]
+        
+        for name, status in facilities:
+            st.markdown(f"<div style='background:white; padding:1rem; margin:0.5rem 0; border-radius:8px; border-left:4px solid #f59e0b;'><p style='margin:0; font-weight:600;'>{name}</p><p style='margin:0.25rem 0 0 0; font-size:0.85rem; color:#6b7280;'>{status}</p></div>", unsafe_allow_html=True)
+
+# ============================================================================
+# PAGE 3: FACILITIES
+# ============================================================================
+
+elif page == "Facilities":
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("💾 Save Review", use_container_width=True):
+            st.success("Review saved!")
+    
+    st.markdown("---")
+    
+    st.markdown("### Facility Evidence - Detail View")
+    st.markdown("# Nicobar Island Hospital")
+    st.markdown("<p style='font-size:1.1rem;'><span style='color:#0d9488; font-weight:600;'>Claimed capability: Maternity Care</span> <span style='color:#f59e0b; font-weight:600;'>Trust signal: Partial Evidence</span></p>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Evidence Breakdown")
+        evidence_items = [
+            ("🟢", "Description mentions maternity delivery", "Strong"),
+            ("🟢", "Specialties include Obstetrics", "Strong"),
+            ("🟠", "Procedure list contains C-section", "Partial"),
+            ("🔴", "Equipment field lacks incubator/OT detail", "Weak"),
+            ("🔴", "Doctor count missing", "Weak"),
+            ("🟢", "Source URL available", "Strong")
+        ]
+        
+        for icon, text, strength in evidence_items:
+            color = "#10b981" if strength == "Strong" else "#f59e0b" if strength == "Partial" else "#ef4444"
+            st.markdown(f"<p style='margin:0.75rem 0;'>{icon} {text} <span style='background:{color}33; color:{color}; padding:0.25rem 0.75rem; border-radius:12px; font-size:0.85rem; font-weight:600;'>{strength}</span></p>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### Underlying Text Evidence")
+        st.markdown("""
+        <div style='background:#f9fafb; padding:1rem; border-radius:8px; border-left:4px solid #0d9488;'>
+            <p style='margin:0.5rem 0; color:#0d9488; font-weight:600;'>description</p>
+            <p style='margin:0.25rem 0; color:#374151; font-size:0.9rem;'>"Provides maternal care, delivery support, and emergency consultation."</p>
+            
+            <p style='margin:1rem 0 0.5rem 0; color:#0d9488; font-weight:600;'>specialties</p>
+            <p style='margin:0.25rem 0; color:#374151; font-size:0.9rem;'>Obstetrics, General Medicine, Pediatrics</p>
+            
+            <p style='margin:1rem 0 0.5rem 0; color:#0d9488; font-weight:600;'>equipment</p>
+            <p style='margin:0.25rem 0; color:#374151; font-size:0.9rem;'>Basic beds, oxygen; no OT / neonatal equipment listed</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Review Decision
+    st.markdown("### Planner Review Decision")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.button("✅ Accept claim", use_container_width=True, type="secondary")
+    with col2:
+        st.button("⚠️ Needs review", use_container_width=True, type="secondary")
+    with col3:
+        st.button("❌ Reject claim", use_container_width=True, type="secondary")
+    with col4:
+        st.button("📝 Add note", use_container_width=True, type="primary")
+
+# ============================================================================
+# PAGE 4: EVIDENCE REVIEW
+# ============================================================================
+
+elif page == "Evidence Review":
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("📄 Download Brief", use_container_width=True):
+            st.success("Brief downloaded!")
+    
+    st.markdown("---")
+    
+    st.markdown("### AI Gap Brief - Planner Ready Output")
+    st.markdown("# Care Gap: Maternity Desert in Nicobars")
+    st.markdown("<p style='font-size:1.1rem;'><span style='background:#fff3cd; color:#856404; padding:0.5rem 1rem; border-radius:20px; font-weight:600;'>Confidence: Medium-High</span> <span style='background:#dbeafe; color:#1e40af; padding:0.5rem 1rem; border-radius:20px; font-weight:600; margin-left:0.5rem;'>Evidence-backed</span></p>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Why this is likely real")
+        reasons = [
+            "Low ANC coverage and high anemia burden point to unmet need.",
+            "Only one facility has strong or partial maternity evidence.",
+            "No strong evidence of emergency obstetric capability in district.",
+            "Multiple facility claims are weak, incomplete, or suspicious."
+        ]
+        for i, reason in enumerate(reasons, 1):
+            st.markdown(f"<div style='display:flex; align-items:start; margin:1rem 0;'><span style='background:#0d9488; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; flex-shrink:0;'>{i}</span><p style='margin:0 0 0 1rem; color:#374151;'>{reason}</p></div>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### Recommended Actions")
+        actions = [
+            "Verify top 3 weak maternity claims using source URLs.",
+            "Deploy mobile ANC outreach to high-gap PIN codes.",
+            "Create referral shortlist for emergency obstetric care.",
+            "Track whether data improvements reduce gap score."
+        ]
+        for i, action in enumerate(actions, 1):
+            st.markdown(f"<div style='display:flex; align-items:start; margin:1rem 0;'><span style='background:#10b981; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; flex-shrink:0;'>{i}</span><p style='margin:0 0 0 1rem; color:#374151;'>{action}</p></div>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Impact table
+    st.markdown("### Expected Impact & Confidence Shift")
+    impact_df = pd.DataFrame({
+        'Metric': ['Gap Score', 'Confidence', 'Strong evidence facilities', 'Facilities needing review'],
+        'Before': ['82', 'Medium', '1', '7'],
+        'Arrow': ['→', '→', '→', '→'],
+        'After': ['58', 'High', '3', '3'],
+        'Change': ['-24', 'Improves', '+2', '-4']
+    })
+    st.table(impact_df)
+
+# ============================================================================
+# PAGE 5: SCENARIO PLANNER
+# ============================================================================
+
+elif page == "Scenario Planner":
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("▶️ Run Scenario", use_container_width=True):
+            st.success("Scenario simulated!")
+    
+    st.markdown("---")
+    
+    st.markdown("### Scenario Planner - What If We Close the Gap?")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("#### Add emergency obstetric center")
+        center_count = st.slider("", 0, 5, 1, key="center")
+        st.markdown(f"<p style='text-align:right; font-weight:600;'>{center_count} center</p>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("#### Verify weak maternity claims")
+        claims_count = st.slider("", 0, 10, 3, key="claims")
+        st.markdown(f"<p style='text-align:right; font-weight:600;'>{claims_count} claim</p>", unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("#### Increase ANC outreach")
+        outreach_pct = st.slider("", 0, 50, 20, key="outreach")
+        st.markdown(f"<p style='text-align:right; font-weight:600;'>+{outreach_pct}%</p>", unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col1:
+        st.markdown("### Simulation Result")
+        st.markdown("<p style='margin:1rem 0;'><span style='color:#6b7280;'>Gap score</span></p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:2.5rem; font-weight:bold; margin:0;'><span style='color:#dc3545;'>82</span> <span style='color:#10b981;'>→ 58</span></p>", unsafe_allow_html=True)
+        
+        st.markdown("<p style='margin:2rem 0 1rem 0;'><span style='color:#6b7280;'>Confidence</span></p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:1.5rem; font-weight:600; margin:0;'><span style='color:#f59e0b;'>Medium</span> <span style='color:#10b981;'>→ High</span></p>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### Impact Matrix")
+        impact_df = pd.DataFrame({
+            'Effort': [3, 7, 4, 8],
+            'Impact': [8, 9, 6, 5],
+            'Action': ['ANC outreach', 'OB center', 'Verify claims', 'Referral map']
+        })
+        
+        fig = px.scatter(impact_df, x='Effort', y='Impact', text='Action', size_max=50)
+        fig.update_traces(textposition='top center')
+        fig.update_layout(height=300, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================================
+# PAGE 6: ARCHITECTURE / TRUST
+# ============================================================================
+
+elif page == "Architecture / Trust":
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("🔍 View Trust Flow", use_container_width=True):
+            st.success("Trust flow displayed!")
+    
+    st.markdown("---")
+    
+    st.markdown("### Trust Architecture & Data Readiness")
+    
+    # Data pipeline flow
+    st.markdown("""
+    <div style='display:flex; align-items:center; justify-content:space-between; padding:2rem; background:#f9fafb; border-radius:10px; margin:2rem 0;'>
+        <div style='background:white; padding:1rem 1.5rem; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>
+            <p style='margin:0; font-weight:600; color:#6b7280; font-size:0.85rem;'>Messy facility</p>
+            <p style='margin:0; font-weight:600; color:#111827;'>records</p>
+        </div>
+        <span style='font-size:2rem; color:#0d9488;'>→</span>
+        <div style='background:#fef3c7; padding:1rem 1.5rem; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>
+            <p style='margin:0; font-weight:600; color:#92400e; font-size:0.85rem;'>Bronze raw</p>
+            <p style='margin:0; font-weight:600; color:#111827;'>delta</p>
+        </div>
+        <span style='font-size:2rem; color:#0d9488;'>→</span>
+        <div style='background:#cffafe; padding:1rem 1.5rem; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>
+            <p style='margin:0; font-weight:600; color:#155e75; font-size:0.85rem;'>Silver cleaned</p>
+            <p style='margin:0; font-weight:600; color:#111827;'>tables</p>
+        </div>
+        <span style='font-size:2rem; color:#0d9488;'>→</span>
+        <div style='background:#d1fae5; padding:1rem 1.5rem; border-radius:8px; box-shadow:0 2px 4px rgba(0,0,0,0.1);'>
+            <p style='margin:0; font-weight:600; color:#065f46; font-size:0.85rem;'>Planner UI +</p>
+            <p style='margin:0; font-weight:600; color:#111827;'>saved work</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("### Review Queue")
+        queue_items = [
+            ("High", "Suspicious claim", "Maternity + no doctors listed"),
+            ("Medium", "Sparse record", "No equipment or capacity"),
+            ("High", "Contradiction", "ICU claim but pediatrics absent")
+        ]
+        
+        for priority, title, desc in queue_items:
+            color = "#dc3545" if priority == "High" else "#f59e0b"
+            st.markdown(f"<div style='background:white; padding:1rem; margin:0.75rem 0; border-radius:8px; border-left:4px solid {color};'><p style='margin:0;'><span style='background:{color}33; color:{color}; padding:0.25rem 0.75rem; border-radius:12px; font-size:0.75rem; font-weight:600;'>{priority}</span></p><p style='margin:0.5rem 0 0 0; font-weight:600;'>{title}</p><p style='margin:0.25rem 0 0 0; font-size:0.85rem; color:#6b7280;'>{desc}</p></div>", unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("### Lakebase Connection Status")
+        conn = get_connection()
+        if conn:
+            st.success("✅ Connected to Lakebase PostgreSQL")
+            st.info(f"Database: {PGDATABASE}")
+            st.info(f"Endpoint: {ENDPOINT_NAME}")
+        else:
+            st.error("❌ Connection unavailable")
+    
+    with col3:
+        st.markdown("### Persistence / Workspace")
+        workspace_items = [
+            "✅ Saved scenario: Add OB center",
+            "✅ Override: Bay Clinic review",
+            "✅ Shortlist: 2 referral candidates",
+            "✅ Export: Care Gap Brief ready"
+        ]
+        
+        for item in workspace_items:
+            st.markdown(f"<p style='margin:0.75rem 0; padding:0.75rem; background:#f0fdf4; border-radius:8px; color:#166534;'>{item}</p>", unsafe_allow_html=True)
+

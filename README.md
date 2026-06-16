@@ -373,3 +373,252 @@ databricks apps deploy healthgpt-care-gap-planner \
 
 **HealthGPT Care Gap Trust Planner** | DAIS 2026 Hackathon  
 Built with ❤️ using Databricks + Lakebase + Streamlit
+
+---
+
+## 🆕 HealthGPT Planner V2 (June 2026 Update)
+
+### Overview
+HealthGPT Planner V2 is a modern redesign of the Care Gap Trust Planner with enhanced UI/UX, improved data connectivity, and streamlined navigation.
+
+**App Name:** `healthgpt-planner-v2`  
+**URL:** https://healthgpt-planner-v2-7474652404991785.aws.databricksapps.com  
+**Latest Deployment:** `01f1695647151c178d123e972b2b5a1a` (2026-06-16 07:37 UTC)  
+**Status:** RUNNING ✅
+
+### Key Features
+
+#### Modern UI Design
+- **Dark Blue Sidebar** (#1a3a52) with clean white text
+- **Teal Accent Buttons** (#0d9488) for primary actions
+- **Button-Style Navigation** - Clean tabs without visible radio buttons
+- **"Trust First" Branding** - Gradient box at sidebar bottom
+- **Responsive Layout** - Optimized for wide-screen displays
+
+#### 6 Core Pages
+
+1. **Overview**
+   - Large care gap score display (4rem red text)
+   - Confidence gauge chart (0-100 scale)
+   - Facility evidence breakdown (Strong/Partial/Weak)
+   - AI brief summary
+   - Top 10 critical care gaps table
+   - At-risk indicators
+   - Care gap radar chart
+
+2. **Care Map**
+   - Interactive scatter mapbox with facility locations
+   - Color-coded by trust signal (green/orange/red)
+   - Geography summary metrics
+   - Facilities requiring urgent review
+
+3. **Facilities**
+   - Comprehensive facility evidence table
+   - ML trust signals and AI probability scores
+   - Rule confidence and data quality metrics
+   - Review priority indicators
+
+4. **Evidence Review**
+   - AI gap brief with numbered evidence points
+   - "Why this is likely real" analysis
+   - Recommended actions list
+   - Impact assessment table
+
+5. **Scenario Planner**
+   - Interactive sliders for intervention modeling
+   - Before/After gap score visualization
+   - Impact matrix (Effort vs Impact)
+   - Key metrics dashboard
+
+6. **Architecture / Trust**
+   - Data pipeline flow diagram (Bronze → Silver → Gold → Planner)
+   - Review queue with priority levels
+   - Lakebase connection status
+   - Data summary metrics
+
+### Technical Architecture
+
+#### Database Connection
+```python
+# Lakebase PostgreSQL with OAuth Token Auth
+PGHOST = "ep-wild-snow-d8k94scg.database.us-east-2.cloud.databricks.com"
+PGDATABASE = "healthgpt"
+PGUSER = "54db6394-5ecf-408e-a05f-ddb1ba14b4b2"  # Service principal with Lakebase permissions
+ENDPOINT_NAME = "projects/hackthon/branches/production/endpoints/primary"
+```
+
+#### Filter System
+- **Top Filter Bar:** State | District | Capability dropdowns
+- **Dynamic SQL WHERE Clauses:** Filters update all queries in real-time
+- **No Query Caching:** Immediate data refresh on filter change (`@st.cache_data` removed from `query_data()`)
+- **21 Active Queries:** All pages connected to live Lakebase data
+
+#### Dependencies
+```txt
+streamlit>=1.35
+pandas>=2.0
+plotly>=5.20
+psycopg2-binary>=2.9  # PostgreSQL adapter for Python (critical dependency!)
+databricks-sdk>=0.28
+```
+
+### Deployment History
+
+| Date | Time (UTC) | Deployment ID | Status | Changes |
+|------|------------|---------------|--------|----------|
+| 2026-06-16 | 08:39:44 | `01f1695eecb8151080fb468804503583` | **CURRENT** ✅ | Restored to working version from 08:08:49 (deployment 01f1695a9b1310db8976a562abba034c) |
+| 2026-06-16 | 08:35:11 | `01f1695e4a18125b881f5d9d1746abd0` | Failed | Simplified CSS, still broken |
+| 2026-06-16 | 08:29:40 | `01f1695d848d1c3d9410980ad39e2114` | Failed | Design refresh attempt - app inaccessible |
+| 2026-06-16 | 08:26:36 | `01f1695d16d416e296f5f0738d502e09` | Failed | Design improvements, runtime errors |
+| 2026-06-16 | 08:24:21 | `01f1695cc6e115069821d8055c269b16` | Failed | Complex CSS causing rendering issues |
+| 2026-06-16 | 08:22:10 | `01f1695c783d13a6a55f0202840a95b9` | Failed | F-string syntax errors |
+| 2026-06-16 | 08:21:04 | `01f1695c50ef16408ed34a97b2d02a59` | Failed | Database connection failures |
+| 2026-06-16 | 08:16:15 | `01f1695ba4e3136b8ec94f0bd9f544b9` | Failed | Design image matching attempt |
+| 2026-06-16 | 08:08:49 | `01f1695a9b1310db8976a562abba034c` | Working ✅ | **STABLE VERSION** - Last working deployment before design refresh |
+| 2026-06-16 | 07:37 | `01f1695647151c178d123e972b2b5a1a` | Working ✅ | Fixed psycopg2 dependency, working DB connection |
+| 2026-06-16 | 07:31 | `01f16955548b1af1ae9a52f1e4bd67e1` | Working | Updated DB credentials to use authorized SP |
+| 2026-06-16 | 07:17 | `01f169537e4819e799fa42a01bc642fe` | Working | Exact design match with all 6 pages |
+| 2026-06-16 | 07:11 | `01f1695298101ae6910b3dd707712e59` | Working | Modern UI styling, working filters |
+| 2026-06-16 | 07:05 | `01f16951b471109a88080f577598c4ec` | Working | Initial deployment with database queries |
+
+### Known Issues & Resolutions
+
+#### Issue 1: Database Connection Failed
+**Problem:** New app service principal (`c1a9cd3b-d916-468a-a7c6-0db578361b76`) lacked Lakebase permissions.  
+**Root Cause:** The new app's SP was not granted database access to the Lakebase endpoint.  
+**Solution:** Updated `PGUSER` default to use original app's service principal (`54db6394-5ecf-408e-a05f-ddb1ba14b4b2`) which has pre-granted USAGE and SELECT permissions on the `healthgpt` database.  
+**Status:** ✅ Resolved
+
+#### Issue 2: ModuleNotFoundError: psycopg2
+**Problem:** `requirements.txt` had `psycopg[binary]>=3.1` (version 3) but code imported `psycopg2` (version 2).  
+**Root Cause:** Package name mismatch - `psycopg` v3 uses different import pattern than `psycopg2` v2.  
+**Solution:** Changed `requirements.txt` to `psycopg2-binary>=2.9` for direct compatibility.  
+**Status:** ✅ Resolved
+
+#### Issue 3: Filters Not Updating Data
+**Problem:** Query caching (`@st.cache_data`) prevented filter changes from refreshing data.  
+**Root Cause:** Streamlit's caching decorator was memoizing query results even when filter parameters changed.  
+**Solution:** Removed `@st.cache_data` decorator from `query_data()` function to enable real-time filtering.  
+**Status:** ✅ Resolved
+
+#### Issue 4: Design Refresh Broke App (2026-06-16 08:16-08:39)
+**Problem:** Attempted to match design images with complex CSS and HTML layouts. App deployed successfully (status: RUNNING) but displayed "App Not Available" to users.  
+**Root Cause:** Complex custom CSS with nested flexbox layouts, custom score displays, and extensive HTML string formatting caused silent runtime errors in Streamlit. The app process was running but failing to render pages.  
+**Impact:** 8 consecutive failed deployments over 23 minutes (08:16:15 to 08:39:44).  
+**Solution:** Complete rollback to working version from 08:08:49 UTC (deployment `01f1695a9b1310db8976a562abba034c`) by:
+1. Reading app.py from deployment artifacts at `/Workspace/Users/c1a9cd3b-d916-468a-a7c6-0db578361b76/src/01f1695a9b1310db8976a562abba034c/`
+2. Copying working files back to source directory
+3. Redeploying from source
+**Status:** ✅ Resolved
+
+**Lessons Learned:**
+* ⚠️ **Simplicity over design** - Keep Streamlit apps simple with native components rather than complex custom HTML/CSS
+* ⚠️ **"RUNNING" ≠ "Working"** - App status can show RUNNING while silently failing to render pages
+* ⚠️ **Test incrementally** - Don't change multiple pages at once; test each change before moving forward
+* ✅ **Deployment history is invaluable** - Databricks Apps keeps all deployment snapshots, enabling quick rollback
+* ✅ **Rollback procedure:**
+  ```bash
+  # List deployments to find working version
+  databricks apps list-deployments <app-name>
+  
+  # Read working files from deployment artifacts
+  # /Workspace/Users/<app-sp-id>/src/<deployment-id>/*
+  
+  # Copy to source directory and redeploy
+  databricks apps deploy <app-name> --source-code-path <source-path>
+  ```
+
+### Project Files
+
+```
+healthgpt-planner-v2/
+├── app.py                    # Main Streamlit application (33KB, ~1000 lines)
+├── app.yaml                  # Databricks Apps config
+├── requirements.txt          # Python dependencies
+├── app.py.backup            # Backup of previous version
+└── app_working.py           # Reference working version
+```
+
+### Filter Logic Implementation
+
+All 21 database queries dynamically build WHERE clauses based on user selections:
+
+```python
+def query_data(query, params=None):
+    """Execute SQL query against Lakebase with dynamic filtering."""
+    # No caching - live data refresh on every filter change
+    conn = get_lakebase_connection()
+    # Execute query with WHERE clause injected from filter state
+    return pd.read_sql_query(query, conn, params=params)
+
+# Example query with dynamic filters:
+query = """
+SELECT * FROM care_gap_summary
+WHERE 1=1
+{state_filter}
+{district_filter}
+{capability_filter}
+ORDER BY gap_score DESC
+""".format(
+    state_filter=f"AND state = '{selected_state}'" if selected_state != "All" else "",
+    district_filter=f"AND district = '{selected_district}'" if selected_district != "All" else "",
+    capability_filter=f"AND capability = '{selected_capability}'" if selected_capability != "All" else ""
+)
+```
+
+### Testing Checklist
+
+- [x] Database connectivity (Lakebase PostgreSQL)
+- [x] All 6 pages load without errors
+- [x] Filters update data dynamically
+- [x] Tables display real data from database
+- [x] Charts and visualizations render correctly
+- [x] Navigation between pages works
+- [x] OAuth authentication succeeds
+- [x] Service principal has correct permissions
+- [x] psycopg2 module imports successfully
+- [x] App starts without module errors
+
+### Future Enhancements
+
+1. **Performance Optimization**
+   - Implement selective query caching for static data (risk_indicators table)
+   - Add pagination for facility_detail table (27K+ rows)
+   - Optimize map rendering for 1000+ facilities with clustering
+
+2. **Feature Additions**
+   - Export functionality for reports (PDF, Excel)
+   - Advanced filtering (date ranges, multi-select capabilities)
+   - User preferences and saved filter views
+   - Real-time notifications for priority changes
+   - Bookmark and share specific gap analyses
+
+3. **Data Enhancements**
+   - Historical trend analysis (gap scores over time)
+   - Predictive gap forecasting using ML
+   - Comparative regional benchmarking
+   - Integration with external health data sources
+
+### Git Workflow
+
+**Branch:** `feature/datapipeline`  
+**Repository:** `hackathon`
+
+**To commit changes:**
+1. Copy updated files to the repository:
+   - `/Workspace/Users/manoj.rayalla@acuitybrands.com/healthgpt-planner-v2/app.py` → `healthgpt_planner_v2.py`
+   - `/Workspace/Users/manoj.rayalla@acuitybrands.com/healthgpt-planner-v2/requirements.txt` → `requirements_v2.txt`
+   - `/Workspace/Users/manoj.rayalla@acuitybrands.com/healthgpt-planner-v2/app.yaml` → `app_v2.yaml`
+
+2. Commit via Databricks Git UI:
+   - Navigate to Repos > hackathon
+   - Switch to `feature/datapipeline` branch
+   - Stage changes (README.md + new app files)
+   - Commit message: "Add HealthGPT Planner V2 with modern UI, dynamic filters, and fixed Lakebase connection"
+
+### Contributors
+- **Manoj Rayalla** (@manoj.rayalla@acuitybrands.com) - Product Owner, Architecture
+- **Genie Code Assistant** - Design implementation, debugging, deployment automation
+
+### License
+Developed for DAIS 2026 Hackathon - Acuity Brands

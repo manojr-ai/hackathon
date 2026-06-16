@@ -1,0 +1,6 @@
+#!/bin/bash -e
+if [[ ! -f "/home/spark-f82d50d6-5c33-4362-bfe9-46/tmp/uv/uv_0.6.10_linux_arm64" ]]; then
+  curl -LsSf https://astral.sh/uv/0.6.10/install.sh | sh
+  exec "$HOME/.local/bin/uv" "$@"
+fi
+exec "/home/spark-f82d50d6-5c33-4362-bfe9-46/tmp/uv/uv_0.6.10_linux_arm64" "$@"
