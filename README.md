@@ -144,9 +144,3 @@ HealthGPT Care Gap Trust Planner helps planners separate real care deserts from 
 | Scenario Planner | Recalculates gap score and confidence after simulated verification, rejection, or capacity changes. |
 | Ask HealthGPT | Generates evidence-grounded explanations, review plans, and action briefs. |
 | Architecture / Trust | Shows lineage, scoring logic, and persisted planner decisions. |
-
-
-
-
-Note:
-*Minimum Lovable Product
