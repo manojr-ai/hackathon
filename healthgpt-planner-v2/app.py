@@ -235,21 +235,11 @@ st.markdown('''
 # ============================================================================
 
 # Use environment variables injected by Databricks Apps
-PGHOST = os.environ.get("PGHOST", "ep-wild-snow-d8k94scg.database.us-east-2.cloud.databricks.com")
+PGHOST = os.environ.get("PGHOST", "ep-still-frog-d8mha4oz.database.us-east-2.cloud.databricks.com")
 PGPORT = os.environ.get("PGPORT", "5432")
 PGDATABASE = os.environ.get("PGDATABASE", "healthgpt")
-# Use current user email for PGUSER
-if "PGUSER" in os.environ:
-    PGUSER = os.environ["PGUSER"]
-else:
-    # Get current user email from Workspace Client
-    try:
-        _temp_w = WorkspaceClient()
-        _current_user = _temp_w.current_user.me()
-        PGUSER = _current_user.user_name
-    except:
-        # Fallback to service principal if available
-        PGUSER = os.environ.get("DATABRICKS_CLIENT_ID") or os.environ.get("DATABRICKS_SERVICE_PRINCIPAL_CLIENT_ID", "54db6394-5ecf-408e-a05f-ddb1ba14b4b2")
+# Use service principal client ID as PGUSER (Apps context)
+PGUSER = os.environ.get("PGUSER") or os.environ.get("DATABRICKS_CLIENT_ID") or os.environ.get("DATABRICKS_SERVICE_PRINCIPAL_CLIENT_ID", "54db6394-5ecf-408e-a05f-ddb1ba14b4b2")
 ENDPOINT_NAME = "projects/hackthon/branches/production/endpoints/primary"
 
 @st.cache_resource(ttl=900)
@@ -285,7 +275,8 @@ def get_connection():
         )
         return conn
     except Exception as e:
-        st.error(f"Database connection unavailable. Please contact support.")
+        st.error(f"Database connection error: {str(e)}")
+        st.error(f"Connection details - Host: {PGHOST}, Database: {PGDATABASE}, User: {PGUSER}")
         return None
 
 def query_data(query):
@@ -806,20 +797,17 @@ if page == "Overview":
 
 elif page == "Care Map":
     # Top bar with filter display and Refresh button
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+    col1, col2, col3 = st.columns([2, 2, 1])
     
     with col1:
         state_display = selected_state if selected_state != "All States" else "Tamil Nadu"
         st.markdown(f'<div style="font-size: 1.05rem; color: #1e293b;"><strong>State:</strong> {state_display}</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<div style="font-size: 1.05rem; color: #1e293b;"><strong>District:</strong> Nicobars</div>', unsafe_allow_html=True)
-    
-    with col3:
         capability_display = selected_capability if selected_capability != "All Capabilities" else "Maternity Care"
         st.markdown(f'<div style="font-size: 1.05rem; color: #1e293b;"><strong>Capability:</strong> {capability_display}</div>', unsafe_allow_html=True)
     
-    with col4:
+    with col3:
         if st.button("Refresh Map", use_container_width=True, type="primary"):
             st.success("Map refreshed!")
     

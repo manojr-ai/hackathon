@@ -621,8 +621,9 @@ ORDER BY gap_score DESC
 ### Overview
 The Care Map tab has been completely redesigned to match the target design with interactive geographic visualization, colored district regions, and real-time facility data.
 
-**Latest Deployment:** `01f1699df0461555a022e521fc16eb27` (2026-06-16 16:10:54 UTC)  
-**Status:** ✅ SUCCEEDED - App started successfully
+**Latest Deployment:** `01f1699f23e4106c8ff13c1b556e0885` (2026-06-16 16:19:31 UTC)  
+**Status:** ✅ SUCCEEDED - App started successfully  
+**Previous Deployment:** `01f1699df0461555a022e521fc16eb27` (2026-06-16 16:10:54 UTC)
 
 ### Key Features
 
@@ -776,21 +777,21 @@ databricks apps deploy healthgpt-planner-v2 \
   --source-code-path /Workspace/Repos/manoj.rayalla@acuitybrands.com/hackathon/healthgpt-planner-v2
 ```
 
-**Deployment Result:**
-```json
-{
-  "create_time": "2026-06-16T16:10:48Z",
-  "deployment_id": "01f1699df0461555a022e521fc16eb27",
-  "mode": "SNAPSHOT",
-  "status": {
-    "message": "App started successfully",
-    "state": "SUCCEEDED"
-  },
-  "update_time": "2026-06-16T16:10:54Z"
-}
-```
+**Deployment History:**
 
-**Deployment Time:** 6 seconds (from 16:10:48 to 16:10:54)
+1. **First Deployment** - `01f1699df0461555a022e521fc16eb27` (16:10:54 UTC)
+   - Added interactive map with polygon regions
+   - Added facility markers with color coding
+   - ❌ Issue: Used incorrect column names (`rule_trust_score`, `confidence_level`)
+
+2. **Column Fix Deployment** - `01f1699f23e4106c8ff13c1b556e0885` (16:19:31 UTC)
+   - ✅ Fixed all queries to use correct column names (`ml_trust_score`, `ml_trust_signal`)
+   - ✅ Updated facility query (lines 858-871)
+   - ✅ Updated color/label assignment (lines 897-898)
+   - ✅ Updated hover template (lines 964-965)
+   - ✅ Updated summary query (lines 1003-1010)
+   - ✅ Updated review query (lines 1046-1057)
+   - Deployment time: 7 seconds
 
 ### Files Modified
 
