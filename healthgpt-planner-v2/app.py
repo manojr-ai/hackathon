@@ -1046,20 +1046,20 @@ elif page == "Care Map":
         review_query = '''
             SELECT 
                 facility_name,
-                rule_trust_score,
-                confidence_level
+                ml_trust_score,
+                ml_trust_signal
             FROM public.facility_detail
             WHERE latitude BETWEEN 6 AND 10
               AND longitude BETWEEN 92 AND 94
-              AND (rule_trust_score < 75 OR confidence_level IN ('WEAK', 'PARTIAL'))
-            ORDER BY rule_trust_score ASC
+              AND (ml_trust_score < 75 OR ml_trust_signal IN ('WEAK', 'PARTIAL'))
+            ORDER BY ml_trust_score ASC
             LIMIT 3
         '''
         review_df = query_data(review_query)
         
         if not review_df.empty:
             for _, row in review_df.iterrows():
-                score = row['rule_trust_score']
+                score = row['ml_trust_score']
                 name = row['facility_name']
                 
                 if pd.isna(score) or score < 40:
