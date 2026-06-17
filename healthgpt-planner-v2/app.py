@@ -235,12 +235,12 @@ st.markdown('''
 # ============================================================================
 
 # Use environment variables injected by Databricks Apps
-PGHOST = os.environ.get("PGHOST", "ep-still-frog-d8mha4oz.database.us-east-2.cloud.databricks.com")
+PGHOST = os.environ.get("PGHOST", "ep-purple-mud-d83dhgkj.database.us-east-2.cloud.databricks.com")
 PGPORT = os.environ.get("PGPORT", "5432")
 PGDATABASE = os.environ.get("PGDATABASE", "healthgpt")
 # Use service principal client ID as PGUSER (Apps context)
 PGUSER = os.environ.get("PGUSER") or os.environ.get("DATABRICKS_CLIENT_ID") or os.environ.get("DATABRICKS_SERVICE_PRINCIPAL_CLIENT_ID", "54db6394-5ecf-408e-a05f-ddb1ba14b4b2")
-ENDPOINT_NAME = "projects/hackthon/branches/production/endpoints/primary"
+ENDPOINT_NAME = "projects/hackathan2/branches/production/endpoints/primary"
 
 @st.cache_resource(ttl=900)
 def get_lakebase_token():
@@ -374,7 +374,7 @@ capabilities_df = query_data("SELECT DISTINCT capability FROM public.care_gap_su
 
 # Filter bar with proper spacing
 st.markdown("### 🔍 Filters")
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
     state_options = ["All States"] + (states_df['state'].tolist() if not states_df.empty else [])
@@ -386,11 +386,6 @@ with col1:
     )
 
 with col2:
-    # District filter is cosmetic only (no city data in database)
-    st.markdown("<label style='font-size:0.875rem; font-weight:400; color:#31333F;'>District (Display only)</label>", unsafe_allow_html=True)
-    st.markdown("<div style='background:#f1f5f9; padding:0.5rem 0.75rem; border-radius:0.375rem; color:#64748b; margin-top:0.25rem;'>Nicobars</div>", unsafe_allow_html=True)
-
-with col3:
     capability_options = ["All Capabilities"] + (capabilities_df['capability'].tolist() if not capabilities_df.empty else [])
     selected_capability = st.selectbox(
         "Select Capability",
@@ -796,18 +791,10 @@ if page == "Overview":
 # ============================================================================
 
 elif page == "Care Map":
-    # Top bar with filter display and Refresh button
-    col1, col2, col3 = st.columns([2, 2, 1])
+    # Top bar with Refresh button
+    col_spacer, col_button = st.columns([5, 1])
     
-    with col1:
-        state_display = selected_state if selected_state != "All States" else "Tamil Nadu"
-        st.markdown(f'<div style="font-size: 1.05rem; color: #1e293b;"><strong>State:</strong> {state_display}</div>', unsafe_allow_html=True)
-    
-    with col2:
-        capability_display = selected_capability if selected_capability != "All Capabilities" else "Maternity Care"
-        st.markdown(f'<div style="font-size: 1.05rem; color: #1e293b;"><strong>Capability:</strong> {capability_display}</div>', unsafe_allow_html=True)
-    
-    with col3:
+    with col_button:
         if st.button("Refresh Map", use_container_width=True, type="primary"):
             st.success("Map refreshed!")
     
@@ -1361,36 +1348,6 @@ elif page == "Scenario Planner":
     
     st.info("Interactive scenario planning tool - adjust interventions to simulate outcomes.")
     
-    # Model performance metrics
-    st.markdown("### 🎯 Dual Scoring System Performance")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    agreement_query = f'''
-        SELECT dual_score_agreement, COUNT(*) as count
-        FROM public.facility_detail
-        WHERE 1=1
-        GROUP BY dual_score_agreement
-    '''
-    agreement_df = query_data(agreement_query)
-    
-    if not agreement_df.empty:
-        with col1:
-            agree_count = agreement_df[agreement_df['dual_score_agreement'] == 'agree']['count'].sum()
-            total = agreement_df['count'].sum()
-            agree_pct = (agree_count / total * 100) if total > 0 else 0
-            st.metric("Rule-ML Agreement", f"{agree_pct:.1f}%")
-        
-        with col2:
-            high_conf = query_data("SELECT COUNT(*) as count FROM public.facility_detail WHERE ml_capability_confidence = 'high'")
-            if not high_conf.empty:
-                st.metric("High Confidence Predictions", f"{int(high_conf['count'].iloc[0]):,}")
-        
-        with col3:
-            review_needed = query_data("SELECT COUNT(*) as count FROM public.facility_detail WHERE review_priority = 'urgent'")
-            if not review_needed.empty:
-                st.metric("Facilities Needing Review", f"{int(review_needed['count'].iloc[0]):,}")
-    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -1468,7 +1425,89 @@ elif page == "Scenario Planner":
         )
 
 # ============================================================================
-# PAGE 6: ACTION PLANNER
+# PAGE 6: ASK HEALTHGPT
+# ============================================================================
+
+elif page == "Ask HealthGPT":
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Ask HealthGPT - Healthcare Gap Analysis Assistant</div>', unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Center the input using columns
+    col1, col2, col3 = st.columns([1, 3, 1])
+    
+    with col2:
+        st.markdown('<div style="text-align: center; color: #64748b; margin-bottom: 1.5rem;">Ask me anything about healthcare gaps, facility capabilities, or care access patterns</div>', unsafe_allow_html=True)
+        
+        # Text input area
+        user_question = st.text_area(
+            "",
+            placeholder="Type your question here... (e.g., Which states have the highest maternity care gaps?)",
+            height=150,
+            key="healthgpt_question",
+            label_visibility="collapsed"
+        )
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Submit button centered
+        col_a, col_b, col_c = st.columns([1, 1, 1])
+        with col_b:
+            submit_button = st.button("🤖 Ask HealthGPT", use_container_width=True, type="primary")
+        
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        
+        # Handle submission
+        if submit_button and user_question:
+            st.markdown('''
+            <div class="info-box">
+                <strong>🤖 HealthGPT Response:</strong><br/><br/>
+                Your question has been received. HealthGPT analysis will be available soon.
+            </div>
+            ''', unsafe_allow_html=True)
+            
+            st.markdown(f"**Your Question:** {user_question}")
+            
+            st.info("💡 This feature is currently in development. Soon you'll receive AI-powered insights based on your healthcare data.")
+        elif submit_button and not user_question:
+            st.warning("⚠️ Please enter a question before submitting.")
+    
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    # Example questions
+    st.markdown('<div class="section-header">Example Questions</div>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown('''
+        <div class="metric-card">
+            <div style="font-weight: 600; margin-bottom: 0.8rem; color: #1e293b;">📊 Data Analysis</div>
+            <ul style="color: #475569; font-size: 0.95rem; line-height: 1.8;">
+                <li>Which states have the highest maternity care gaps?</li>
+                <li>Show me facilities with weak evidence signals</li>
+                <li>What is the trend in care gap scores over time?</li>
+                <li>Which capabilities need urgent intervention?</li>
+            </ul>
+        </div>
+        ''', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown('''
+        <div class="metric-card">
+            <div style="font-weight: 600; margin-bottom: 0.8rem; color: #1e293b;">🎯 Planning Support</div>
+            <ul style="color: #475569; font-size: 0.95rem; line-height: 1.8;">
+                <li>Recommend priority interventions for Tamil Nadu</li>
+                <li>Compare trust scores between rule-based and ML models</li>
+                <li>Estimate underserved population in high-gap regions</li>
+                <li>Suggest resource allocation strategy</li>
+            </ul>
+        </div>
+        ''', unsafe_allow_html=True)
+
+# ============================================================================
+# PAGE 7: ARCHITECTURE / TRUST
 # ============================================================================
 
 elif page == "Architecture / Trust":
